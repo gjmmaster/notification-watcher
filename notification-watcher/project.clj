@@ -5,7 +5,11 @@
             :url "https://www.eclipse.org/legal/epl-2.0/"}
   :dependencies [[org.clojure/clojure "1.11.1"]
                  [clj-http "3.12.3"]
-                 [cheshire "5.11.0"]]
+                 [cheshire "5.11.0"]
+                 ;; Dependências para o servidor web
+                 [http-kit "2.7.0"]
+                 [compojure "1.7.0"]
+                 [ring/ring-core "1.9.6"]]
   :main ^:skip-aot notification-watcher.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all
