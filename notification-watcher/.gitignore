@@ -1,0 +1,62 @@
+# Leiningen target directory
+/target/
+
+# Leiningen checkouts directory
+/checkouts/
+
+# Leiningen repl history
+.lein-repl-history
+
+# Leiningen profiles
+profiles.clj
+profiles.cljs
+
+# Vim swap files
+*.swp
+*.swo
+
+# Emacs backup files
+*~
+#*#
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE specific files
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+*.nbproject/
+*.kdev4/
+*.sublime-project
+*.sublime-workspace
+
+# Java compiled files
+*.class
+*.jar
+*.war
+*.ear
+
+# Node modules
+/node_modules/
+
+# Log files
+*.log
+
+# Environment variables file (optional, if you use one)
+.env
+
+# Specific to lein new app template
+pom.xml
+notification_watcher-*.jar
+notification_watcher-*-standalone.jar
