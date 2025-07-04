@@ -63,8 +63,6 @@ A função log-change-notification formata e imprime os detalhes da mudança det
 IV. Ambiente de Deploy e Operação
 Repositório: https://github.com/gjmmaster/notification-watcher
 
-URL do Serviço: https://jm-notification-watcher.onrender.com
-
 Variáveis de Ambiente Obrigatórias:
 
 GUPSHUP_APP_ID: ID do aplicativo na Gupshup.
