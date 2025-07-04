@@ -29,7 +29,7 @@ WORKDIR /app
 
 # Copia APENAS o arquivo .jar final que foi gerado no Estágio 1 (builder).
 # Renomeamos para 'app.jar' para facilitar o comando de execução.
-COPY --from=builder /app/target/notification-watcher-0.1.0-SNAPSHOT-standalone.jar ./app.jar
+COPY --from=builder /app/target/uberjar/notification-watcher-0.1.0-SNAPSHOT-standalone.jar ./app.jar
 
 # Expõe a porta que a nossa aplicação vai usar. O Render vai mapear esta porta.
 EXPOSE 8080
