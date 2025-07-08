@@ -1,32 +1,36 @@
-;; no arquivo: src/notification_watcher/core.clj
-
 (ns notification-watcher.core
   (:require [notification-watcher.gupshup-service :as gupshup]) ; Importa nosso serviço com o alias 'gupshup'
   (:gen-class))
 
 (defn -main
-  "Função principal da aplicação, agora focada na regra de negócio."
+  "Função principal que agora roda em um loop contínuo para verificação."
   [& args]
-  ;; 1. Chama a função do nosso serviço para obter dados já limpos e validados
-  (let [templates-aprovados (gupshup/get-approved-templates)]
+  (println "===> INICIANDO WORKER EM MODO CONTÍNUO <===")
+  (loop [] ; Inicia um loop infinito
+    (let [templates-aprovados (gupshup/get-approved-templates)]
+      (if (seq templates-aprovados)
+        (do
+          (println "\n=== Iniciando processamento da lógica de negócio ===")
+          (doseq [template templates-aprovados]
+            ;; 'template' é um mapa limpo, garantido pelo nosso serviço.
+            ;; Você pode acessar as chaves com segurança.
+            (println (str "Executando ação para o template: " (:elementName template) " (ID: " (:id template) ")"))
 
-    ;; 2. Lógica de negócio que trabalha com dados seguros e previsíveis
-    (if (seq templates-aprovados)
-      (do
-        (println "\n=== Iniciando processamento da lógica de negócio ===")
-        (doseq [template templates-aprovados]
-          ;; 'template' é um mapa limpo, garantido pelo nosso serviço.
-          ;; Você pode acessar as chaves com segurança.
-          (println (str "Executando ação para o template: " (:elementName template) " (ID: " (:id template) ")"))
+            ;;
+            ;; =======================================================
+            ;;    COLE A SUA LÓGICA DE NEGÓCIO ESPECÍFICA AQUI
+            ;; =======================================================
+            ;;
 
-          ;;
-          ;; =======================================================
-          ;;    COLE A SUA LÓGICA DE NEGÓCIO ESPECÍFICA AQUI
-          ;; =======================================================
-          ;;
-          
-          ))
-      (println "Nenhum template para processar.")))
-  
-  ;; Garante que a aplicação finalize corretamente.
-  (shutdown-agents))
+            ))
+        (println "Nenhum template para processar no momento.")))
+
+    ;; --- Pausa para não sobrecarregar a API ---
+    (println "\nVerificação concluída. Aguardando 10 minutos para o próximo ciclo...")
+    ;; 10 minutos * 60 segundos * 1000 milissegundos = 600000
+    (Thread/sleep 600000)
+
+    (recur))) ; 'recur' reinicia o loop sem consumir mais memória
+
+;; Garante que a aplicação finalize corretamente caso o loop seja interrompido no futuro.
+(shutdown-agents)
