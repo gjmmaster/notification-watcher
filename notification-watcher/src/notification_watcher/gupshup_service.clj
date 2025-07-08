@@ -18,7 +18,7 @@
   "Função privada responsável APENAS por fazer a chamada HTTP.
    É uma função 'impura' (com efeitos colaterais)."
   []
-  (let [api-key (System/getenv "GUPSHUP_API_KEY")]
+  (let [api-key (System/getenv "GUPSHUP_TOKEN")]
     (if-not api-key
       (println "ERRO: A variável de ambiente GUPSHUP_API_KEY não está definida.")
       (try
