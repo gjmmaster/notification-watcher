@@ -16,9 +16,7 @@
 
 (def mock-templates-com-mudanca
   "Dados de teste que simulam uma mudança de categoria."
-  [{"elementName" "template_normal_1", "wabaId" "111222333", "category" "MARKETING"}
-   {"elementName" "template_que_mudou", "wabaId" "444555666", "category" "UTILITY", "oldCategory" "MARKETING"}
-   {"elementName" "template_normal_2", "wabaId" "777888999", "category" "AUTHENTICATION"}])
+  [{"elementName" "template_que_mudou", "wabaId" "444555666", "category" "UTILITY", "oldCategory" "MARKETING"}])
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -33,22 +31,18 @@
     (do
       (println "[MODO DE TESTE ATIVADO] Usando dados mockados para a verificação.")
       mock-templates-com-mudanca)
-
-    ;; --- MODO REAL (COM AS ALTERAÇÕES) ---
-    (let [;; ALTERAÇÃO 1: A URL foi atualizada para a API Padrão.
-          url (str "https://api.gupshup.io/sm/api/v1/template/list/" app-id)]
+      
+    ;; --- MODO REAL ---
+    (let [url (str "https://api.gupshup.io/sm/api/v1/template/list/" app-id)] ; URL CORRETA
       (try
-        (let [;; ALTERAÇÃO 2: O cabeçalho foi mudado de 'Authorization' para 'apikey',
-              ;; que é o padrão para a API Padrão da Gupshup.
-              response (client/get url {:headers {:apikey token} ; <-- MUDANÇA AQUI
+        (let [response (client/get url {;; --- CORREÇÃO APLICADA AQUI ---
+                                        :headers {"apikey" token} ; O nome do header foi corrigido
                                         :as :json
                                         :throw-exceptions false})]
           (if (= (:status response) 200)
-            ;; A API padrão geralmente retorna os dados dentro de uma chave "list" ou "templates".
-            ;; Estamos pegando a chave "templates" aqui.
             (-> response :body (get "templates"))
             (do
-              (println (str "Erro ao buscar templates. Status: " (:status response) " | Body: " (:body response)))
+              (println (str "Erro ao buscar templates. Status: " (:status response)))
               nil)))
         (catch Exception e
           (println (str "Exceção ao buscar templates: " (.getMessage e)))
