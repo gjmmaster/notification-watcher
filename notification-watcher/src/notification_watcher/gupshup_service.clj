@@ -1,8 +1,12 @@
+;; Em src/notification_watcher/gupshup-service.clj
+
 (ns notification-watcher.gupshup-service
   (:require [clojure.spec.alpha :as s]
-            [clj-http.client :as client]))
+            [clj-http.client :as client]
+            [clojure.walk :as walk])) ; <-- IMPORTANTE: Adicione esta linha
 
 ;; --- Definição da "Forma" dos Dados (Schema) ---
+;; (nenhuma mudança aqui, continua o mesmo)
 (s/def ::id string?)
 (s/def ::elementName string?)
 (s/def ::status #{"APPROVED"})
@@ -15,21 +19,20 @@
 (defn- fetch-raw-data
   "Função privada responsável APENAS por fazer a chamada HTTP."
   []
+  ;; (nenhuma mudança aqui, continua o mesmo)
   (let [api-key (System/getenv "GUPSHUP_TOKEN")
-        app-id  (System/getenv "GUPSHUP_APP_ID") ; <-- NOVO: Lendo o APP_ID
+        app-id  (System/getenv "GUPSHUP_APP_ID")
         base-url "https://api.gupshup.io/sm/api/v1/template/list"]
-
     (if-not (and api-key app-id)
       (println "ERRO: As variáveis de ambiente GUPSHUP_TOKEN e/ou GUPSHUP_APP_ID não estão definidas.")
       (try
-        ;; --- MUDANÇA IMPORTANTE AQUI ---
-        (let [full-url (str base-url "/" app-id) ; <-- Montando a URL completa
+        (let [full-url (str base-url "/" app-id)
               response (client/get full-url
-                                   {:headers          {:apikey api-key}
-                                    :as               :json
+                                   {:headers        {:apikey api-key}
+                                    :as             :json ; Pede para o clj-http parsear o JSON
                                     :throw-exceptions false
-                                    :conn-timeout     5000
-                                    :socket-timeout   5000})
+                                    :conn-timeout   5000
+                                    :socket-timeout 5000})
               status (:status response)]
           (if (<= 200 status 299)
             (:body response)
@@ -41,16 +44,17 @@
           nil)))))
 
 (defn- parse-and-clean-templates
-  "Esta função não muda. A responsabilidade dela é só limpar os dados."
+  "Esta função agora converte as chaves para keywords ANTES de filtrar."
   [raw-data]
   (->> (get-in raw-data [:templates] [])
+       (map walk/keywordize-keys) ; <-- A SOLUÇÃO! Converte todas as chaves para keywords.
        (filter #(= "APPROVED" (:status %)))
-       (map #(select-keys % [:id :elementName :status :data]))
+       (map #(select-keys % [:id :elementName :status :data :category :oldCategory]))
        (filter #(s/valid? ::template %))
        (doall)))
 
 (defn get-approved-templates
-  "Esta função não muda. Ela continua orquestrando o processo."
+  "Esta função orquestra o processo. Volte para esta versão depois de depurar."
   []
   (println "Buscando templates da Gupshup...")
   (if-let [raw-data (fetch-raw-data)]
