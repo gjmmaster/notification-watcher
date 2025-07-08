@@ -16,7 +16,8 @@
 
 (def mock-templates-com-mudanca
   "Dados de teste que simulam uma mudança de categoria."
-  [{"elementName" "template_que_mudou", "wabaId" "444555666", "category" "UTILITY", "oldCategory" "MARKETING"}])
+  [{"elementName" "template_que_mudou_1", "wabaId" "444555666", "category" "UTILITY", "oldCategory" "MARKETING"}
+   {"elementName" "template_que_mudou_2", "wabaId" "777888999", "category" "MARKETING", "oldCategory" "UTILITY"}])
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -27,20 +28,20 @@
   "Busca templates. Usa dados de teste se mock-mode? for true, senão chama a API real."
   [app-id token]
   (if mock-mode?
-    ;; --- MODO DE TESTE ---
     (do
       (println "[MODO DE TESTE ATIVADO] Usando dados mockados para a verificação.")
       mock-templates-com-mudanca)
       
-    ;; --- MODO REAL ---
-    (let [url (str "https://api.gupshup.io/sm/api/v1/template/list/" app-id)] ; URL CORRETA
+    (let [url (str "https://api.gupshup.io/sm/api/v1/template/list/" app-id)]
       (try
-        (let [response (client/get url {;; --- CORREÇÃO APLICADA AQUI ---
-                                        :headers {"apikey" token} ; O nome do header foi corrigido
+        (let [response (client/get url {:headers {"apikey" token}
                                         :as :json
                                         :throw-exceptions false})]
           (if (= (:status response) 200)
-            (-> response :body (get "templates"))
+            ;; A API pode retornar um JSON com a chave "templates" ou ser um array direto.
+            ;; Esta linha trata ambos os casos de forma segura.
+            (let [body (:body response)]
+              (if (vector? body) body (get body "templates")))
             (do
               (println (str "Erro ao buscar templates. Status: " (:status response)))
               nil)))
@@ -55,48 +56,48 @@
         wabaId      (get template "wabaId")
         oldCategory (get template "oldCategory")
         category    (get template "category")]
-    (println "\n--- MUDANÇA DETECTADA ---")
+    (println "\n--- MUDANÇA DE CATEGORIA ENCONTRADA ---")
     (println (str "Template: '" elementName "' (WABA ID: " wabaId ")"))
-    (println (str "Categoria anterior: " oldCategory))
-    (println (str "Nova categoria: " category))
-    (println "---------------------------\n")))
+    (println (str "Categoria Anterior: " oldCategory))
+    (println (str "Nova Categoria: " category))
+    (println "---------------------------------------\n")))
 
 (defn check-for-changes
-  "Verifica se houve mudanças nos templates."
+  "Verifica e reporta todas as mudanças encontradas nos templates."
   [app-id token]
+  (println "Iniciando varredura por mudanças de categoria nos templates...")
   (if-let [templates (fetch-templates app-id token)]
-    (doseq [template templates]
-      (when (get template "oldCategory")
-        (log-change-notification template)))))
+    (let [mudancas (filter #(contains? % "oldCategory") templates)]
+      (if (empty? mudancas)
+        (println "Nenhuma mudança de categoria foi encontrada.")
+        (do
+          (println (str "Encontradas " (count mudancas) " mudanças:"))
+          (doseq [template mudancas]
+            (log-change-notification template)))))
+    (println "Falha ao obter templates. A verificação não pôde ser concluída.")))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;                    LÓGICA DO SERVIDOR E PONTO DE ENTRADA                 ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defn- start-watcher-loop!
-  "Inicia o loop de verificação em uma thread de fundo (background)."
-  []
-  (let [app-id (System/getenv "GUPSHUP_APP_ID")
-        token (System/getenv "GUPSHUP_TOKEN")]
-    (if (and app-id token)
-      (future
-        (println "Watcher em background iniciado.")
-        (loop []
-          (println "Executando verificação de templates...")
-          (check-for-changes app-id token)
-          (Thread/sleep 600000) ; Pausa por 10 minutos
-          (recur)))
-      (println "ERRO CRÍTICO: Variáveis de ambiente GUPSHUP_APP_ID e GUPSHUP_TOKEN não definidas."))))
-
+;; A função do servidor web continua a mesma para manter o serviço vivo no Render
 (defroutes app-routes
   "Define as rotas da nossa aplicação web."
-  (GET "/" [] "Serviço Notification Watcher está no ar.")
+  (GET "/" [] "Serviço Notification Watcher está no ar e pronto para verificações.")
   (route/not-found "Página não encontrada."))
 
 (defn -main
-  "Ponto de entrada da aplicação."
+  "Ponto de entrada da aplicação. AGORA EXECUTA A VERIFICAÇÃO UMA VEZ E FICA ATIVO."
   [& args]
-  (let [port (Integer/parseInt (or (System/getenv "PORT") "8080"))]
-    (start-watcher-loop!)
+  (let [port (Integer/parseInt (or (System/getenv "PORT") "8080"))
+        app-id (System/getenv "GUPSHUP_APP_ID")
+        token (System/getenv "GUPSHUP_TOKEN")]
+    
+    ;; Inicia o servidor web para responder aos pings do UptimeRobot
     (server/run-server #'app-routes {:port port})
-    (println (str "Servidor web iniciado na porta " port ". O watcher está rodando em background."))))
+    (println (str "Servidor web iniciado na porta " port ". Serviço pronto."))
+
+    ;; Executa a verificação uma única vez no início
+    (if (and app-id token)
+      (check-for-changes app-id token)
+      (println "ERRO: Variáveis de ambiente GUPSHUP_APP_ID e GUPSHUP_TOKEN não definidas. A verificação inicial não será executada."))))
