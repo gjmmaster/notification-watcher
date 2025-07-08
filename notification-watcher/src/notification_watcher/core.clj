@@ -33,17 +33,22 @@
     (do
       (println "[MODO DE TESTE ATIVADO] Usando dados mockados para a verificação.")
       mock-templates-com-mudanca)
-      
-    ;; --- MODO REAL ---
-    (let [url (str "https://partner.gupshup.io/partner/app/" app-id "/templates")]
+
+    ;; --- MODO REAL (COM AS ALTERAÇÕES) ---
+    (let [;; ALTERAÇÃO 1: A URL foi atualizada para a API Padrão.
+          url (str "https://api.gupshup.io/sm/api/v1/template/list/" app-id)]
       (try
-        (let [response (client/get url {:headers {:Authorization token}
+        (let [;; ALTERAÇÃO 2: O cabeçalho foi mudado de 'Authorization' para 'apikey',
+              ;; que é o padrão para a API Padrão da Gupshup.
+              response (client/get url {:headers {:apikey token} ; <-- MUDANÇA AQUI
                                         :as :json
                                         :throw-exceptions false})]
           (if (= (:status response) 200)
+            ;; A API padrão geralmente retorna os dados dentro de uma chave "list" ou "templates".
+            ;; Estamos pegando a chave "templates" aqui.
             (-> response :body (get "templates"))
             (do
-              (println (str "Erro ao buscar templates. Status: " (:status response)))
+              (println (str "Erro ao buscar templates. Status: " (:status response) " | Body: " (:body response)))
               nil)))
         (catch Exception e
           (println (str "Exceção ao buscar templates: " (.getMessage e)))
