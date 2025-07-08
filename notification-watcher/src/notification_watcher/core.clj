@@ -1,36 +1,50 @@
 (ns notification-watcher.core
-  (:require [notification-watcher.gupshup-service :as gupshup]) ; Importa nosso serviço com o alias 'gupshup'
+  (:require [notification-watcher.gupshup-service :as gupshup]
+            [org.httpkit.server :as server]) ; Importa o servidor http-kit
   (:gen-class))
 
-(defn -main
-  "Função principal que agora roda em um loop contínuo para verificação."
-  [& args]
-  (println "===> INICIANDO WORKER EM MODO CONTÍNUO <===")
-  (loop [] ; Inicia um loop infinito
+(defn start-gupshup-worker
+  "Esta função contém a lógica que roda em loop em segundo plano."
+  []
+  (println "===> [WORKER] Iniciando worker em modo contínuo <===")
+  (loop [] ; O seu loop original está aqui
     (let [templates-aprovados (gupshup/get-approved-templates)]
       (if (seq templates-aprovados)
         (do
-          (println "\n=== Iniciando processamento da lógica de negócio ===")
+          (println "\n=== [WORKER] Iniciando processamento da lógica de negócio ===")
           (doseq [template templates-aprovados]
-            ;; 'template' é um mapa limpo, garantido pelo nosso serviço.
-            ;; Você pode acessar as chaves com segurança.
-            (println (str "Executando ação para o template: " (:elementName template) " (ID: " (:id template) ")"))
+            (println (str "[WORKER] Executando ação para o template: " (:elementName template) " (ID: " (:id template) ")"))
 
-            ;;
             ;; =======================================================
-            ;;    COLE A SUA LÓGICA DE NEGÓCIO ESPECÍFICA AQUI
+            ;;   COLE A SUA LÓGICA DE NEGÓCIO ESPECÍFICA AQUI
             ;; =======================================================
-            ;;
 
             ))
-        (println "Nenhum template para processar no momento.")))
+        (println "[WORKER] Nenhum template para processar no momento.")))
 
     ;; --- Pausa para não sobrecarregar a API ---
-    (println "\nVerificação concluída. Aguardando 10 minutos para o próximo ciclo...")
-    ;; 10 minutos * 60 segundos * 1000 milissegundos = 600000
-    (Thread/sleep 600000)
+    (println "\n[WORKER] Verificação concluída. Aguardando 10 minutos para o próximo ciclo...")
+    (Thread/sleep 600000) ; Pausa de 10 minutos
 
-    (recur))) ; 'recur' reinicia o loop sem consumir mais memória
+    (recur))) ; Reinicia o loop
 
-;; Garante que a aplicação finalize corretamente caso o loop seja interrompido no futuro.
-(shutdown-agents)
+(defn app-handler
+  "Este é o manipulador de requisições web. Ele só precisa dizer que está tudo bem."
+  [request]
+  (println "===> [SERVER] Recebida requisição de health check do Render.")
+  {:status  200
+   :headers {"Content-Type" "text/plain"}
+   :body    "Notification Watcher is running."})
+
+(defn -main
+  "Função principal: inicia o worker em background E o servidor web."
+  [& args]
+  ;; 1. Inicia sua lógica de verificação em uma thread separada (future)
+  (future (start-gupshup-worker))
+
+  ;; 2. Inicia o servidor web para manter o serviço "vivo" no Render
+  (let [port-str (System/getenv "PORT")
+        port (if port-str (Integer/parseInt port-str) 8080)] ; Render fornece a porta via variável de ambiente
+    (println (str "===> [SERVER] Iniciando servidor web na porta " port))
+    (server/run-server #'app-handler {:port port})
+    (println "===> [SERVER] Servidor web iniciado.")))
