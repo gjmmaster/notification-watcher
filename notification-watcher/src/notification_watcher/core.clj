@@ -8,17 +8,19 @@
   verificando e agindo sobre as mudanças de templates."
   []
   (println "===> [WORKER] Iniciando worker em modo contínuo <===")
-  (loop [] ; Inicia um loop infinito
+  (loop []
     (let [templates (gupshup/get-approved-templates)]
-      ;; Estrutura do IF/ELSE corrigida aqui
       (if (seq templates)
-        ;; ---- THEN (se houver templates) ----
         (do
           (println "\n=== [WORKER] Iniciando processamento da lógica de negócio ===")
           (doseq [template templates]
-            (let [template-name (:elementName template)
-                  new-category  (:category template)
-                  old-category  (:oldCategory template)]
+            ;; --- LÓGICA DE NEGÓCIO ROBUSTA ---
+            ;; Usamos (or (:chave template) (get template "chave")) para garantir
+            ;; que pegamos o valor independentemente de a chave ser :keyword ou "string".
+            (let [template-name (or (:elementName template) (get template "elementName"))
+                  new-category  (or (:category template) (get template "category"))
+                  old-category  (or (:oldCategory template) (get template "oldCategory"))]
+
               (if (and old-category (not-empty old-category))
                 ;; SIM, HOUVE MUDANÇA
                 (let [business-account-name "JM Master"
@@ -31,13 +33,11 @@
                   (println notification-message))
                 ;; NÃO, SEM MUDANÇA
                 (println (str "INFO: Template '" template-name "' verificado, sem alteração de categoria."))))))
-        ;; ---- ELSE (se não houver templates) ----
+        
         (println "[WORKER] Nenhum template para processar no momento.")))
 
-    ;; --- Pausa entre os ciclos ---
     (println "\n[WORKER] Verificação concluída. Aguardando 10 minutos para o próximo ciclo...")
     (Thread/sleep 600000)
-
     (recur)))
 
 (defn app-handler
