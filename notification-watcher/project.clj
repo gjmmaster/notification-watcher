@@ -3,13 +3,16 @@
   :url "http://example.com/FIXME"
   :license {:name "EPL-2.0 OR GPL-2.0-or-later WITH Classpath-exception-2.0"
             :url "https://www.eclipse.org/legal/epl-2.0/"}
+  
   :dependencies [[org.clojure/clojure "1.11.1"]
+                 
+                 ;; Cliente HTTP para consumir a API da Gupshup
                  [clj-http "3.12.3"]
-                 [cheshire "5.11.0"]
-                 ;; Dependências para o servidor web
+
+                 ;; Servidor web e roteamento (abordagem moderna)
                  [http-kit "2.7.0"]
-                 [compojure "1.7.0"]
-                 [ring/ring-core "1.9.6"]]
+                 [metosin/reitit-ring "0.7.0-alpha7"]]
+
   :main ^:skip-aot notification-watcher.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all
