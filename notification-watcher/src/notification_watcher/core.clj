@@ -31,31 +31,31 @@
       mock-templates-com-mudanca)
 
     (let [url (str "https://api.gupshup.io/sm/api/v1/template/list/" app-id)]
-      (println (str "[WORKER] Tentando conexão com a API em: " url))
+      (println (str "[WORKER] Tentando conexão com a API. App ID: " app-id ", URL: " url))
       (try
         (let [response (client/get url {:headers          {:apikey token}
-                                        :as               :json
-                                        :throw-exceptions false
+                                        :as               :json ; Tenta parsear como JSON, mas precisamos verificar o status antes
+                                        :throw-exceptions false ; Importante para podermos inspecionar respostas não-200
                                         :conn-timeout     15000
                                         :socket-timeout   15000})]
 
-          ;; =================================================================
-          ;;      >>>>>>    LOG DE DEPURAÇÃO REINSERIDO AQUI    <<<<<<
-          ;; Imprime o corpo inteiro da resposta da Gupshup de forma legível
-          (println "[WORKER] RESPOSTA BRUTA RECEBIDA DA GUPSHUP:")
-          (pprint/pprint (:body response))
-          (println "=========================================================")
-          ;; =================================================================
+          (println (str "[WORKER] Resposta recebida da API. Status HTTP: " (:status response)))
 
           (if (= (:status response) 200)
-            (get-in (:body response) [:templates] [])
             (do
-              (println (str "[WORKER] Erro ao buscar templates. Status: " (:status response)))
+              (println "[WORKER] Resposta da API Gupshup (status 200 OK). Corpo:")
+              (pprint/pprint (:body response)) ;; Loga o corpo parseado
+              (get-in (:body response) [:templates] [])) ; Extrai templates se o corpo for como esperado
+            (do
+              (println (str "[WORKER] Erro ao buscar templates. Status HTTP: " (:status response) ". Corpo da resposta (se houver):"))
+              (pprint/pprint (:body response)) ;; Loga o corpo mesmo se não for 200, pode conter mensagens de erro da API
               nil)))
         (catch Exception e
-          (println "\n!!!! [WORKER] Exceção CRÍTICA ao conectar com a API !!!!")
+          (println "\n!!!! [WORKER] Exceção CRÍTICA ao conectar com a API ou processar resposta !!!!")
+          (println (str "Tipo da exceção: " (type e)))
+          (println (str "Mensagem: " (.getMessage e)))
           (.printStackTrace e)
-          (println "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
+          (println "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
           nil)))))
 
 (defn log-category-change
