@@ -1,70 +1,112 @@
 (ns notification-watcher.core
-  (:require [notification-watcher.gupshup-service :as gupshup]
-            [org.httpkit.server :as server]
-            [clojure.pprint :as pprint]) ; Usado para imprimir erros de forma legível
+  (:require [clj-http.client :as client]
+            [org.httpkit.server :as server])
   (:gen-class))
 
-(defn start-gupshup-worker
-  "Função do worker com tratamento de erros robusto."
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  1. FEATURE FLAG E DADOS DE TESTE (LÓGICA RESTAURADA)                       ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(def mock-mode?
+  "Verifica a variável de ambiente 'MOCK_MODE'. Se for 'true', ativa o modo de teste."
+  (= (System/getenv "MOCK_MODE") "true"))
+
+(def mock-templates-com-mudanca
+  "Dados de teste que simulam uma mudança de categoria. As chaves são strings
+   para simular perfeitamente a resposta da API."
+  [{"elementName" "template_normal_1", "wabaId" "111222333", "category" "MARKETING"}
+   {"elementName" "template_que_mudou", "wabaId" "444555666", "category" "UTILITY", "oldCategory" "MARKETING"}
+   {"elementName" "template_normal_2", "wabaId" "777888999", "category" "AUTHENTICATION"}])
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  2. FUNÇÕES DE LÓGICA DO WATCHER (LÓGICA RESTAURADA)                       ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn fetch-templates
+  "Busca templates. Usa dados de teste se mock-mode? for true, senão chama a API real."
+  [app-id token]
+  (if mock-mode?
+    ;; --- MODO DE TESTE ---
+    (do
+      (println "[MODO DE TESTE ATIVADO] Usando dados mockados para a verificação.")
+      mock-templates-com-mudanca)
+
+    ;; --- MODO REAL ---
+    (let [url (str "https://api.gupshup.io/sm/api/v1/template/list/" app-id)]
+      (try
+        (let [response (client/get url {:headers          {:apikey token}
+                                        :as               :json ; Pede para o clj-http parsear o JSON
+                                        :throw-exceptions false
+                                        :conn-timeout     15000 ; Aumentado para 15s
+                                        :socket-timeout   15000})]
+          (if (= (:status response) 200)
+            (get-in (:body response) [:templates] []) ; Pega a lista de templates de forma segura
+            (do
+              (println (str "Erro ao buscar templates. Status: " (:status response) " | Body: " (pr-str (:body response))))
+              nil)))
+        (catch Exception e
+          (println (str "Exceção CRÍTICA ao buscar templates: " (.getMessage e)))
+          nil)))))
+
+(defn log-change-notification
+  "Loga uma notificação de mudança de template no console, no formato original."
+  [template]
+  (let [elementName (get template "elementName")
+        wabaId      (get template "wabaId")
+        oldCategory (get template "oldCategory")
+        category    (get template "category")]
+    (println "\n--- MUDANÇA DETECTADA ---")
+    (println (str "Template: '" elementName "' (WABA ID: " wabaId ")"))
+    (println (str "Categoria anterior: " oldCategory))
+    (println (str "Nova categoria: " category))
+    (println "---------------------------\n")))
+
+(defn check-for-changes
+  "Verifica se houve mudanças nos templates e loga-as."
+  [app-id token]
+  (println "[WORKER] Executando verificação de templates...")
+  (if-let [templates (fetch-templates app-id token)]
+    (do
+      (println (str "[WORKER] " (count templates) " templates recebidos. Procurando por mudanças..."))
+      (doseq [template templates]
+        ;; A lógica original: verifica se a chave "oldCategory" existe.
+        (when (get template "oldCategory")
+          (log-change-notification template))))
+    (println "[WORKER] Não foi possível obter a lista de templates para verificação.")))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;  3. LÓGICA DO SERVIDOR E PONTO DE ENTRADA (ESTRUTURA COMPATÍVEL)           ;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn- start-watcher-loop!
+  "Inicia o loop de verificação em uma thread de fundo (background)."
   []
-  (println "===> [WORKER] Iniciando worker em modo contínuo <===")
-  (loop []
-    (try
-      ;; --- INÍCIO DO BLOCO SEGURO ---
-      (println "===> [WORKER] Ciclo iniciado. Chamando o serviço da Gupshup...")
-      (let [templates (gupshup/get-approved-templates)]
-        (println (str "===> [WORKER] Serviço retornou " (count templates) " templates. Iniciando processamento..."))
-
-        (if (seq templates)
-          (do
-            (println "\n=== [WORKER] Iniciando processamento da lógica de negócio ===")
-            (doseq [template templates]
-              (let [template-name (or (:elementName template) (get template "elementName"))
-                    new-category  (or (:category template) (get template "category"))
-                    old-category  (or (:oldCategory template) (get template "oldCategory"))]
-
-                (if (and old-category (not-empty old-category))
-                  (let [business-account-name "JM Master"
-                        notification-message (format
-                          "ALERTA: A categoria do modelo '%s' na conta %s foi atualizada de %s para %s."
-                          template-name
-                          business-account-name
-                          old-category
-                          new-category)]
-                    (println notification-message))
-                  (println (str "INFO: Template '" template-name "' verificado, sem alteração de categoria."))))))
-          (println "[WORKER] Nenhum template para processar no momento.")))
-      ;; --- FIM DO BLOCO SEGURO ---
-
-      ;; --- CAPTURA E EXIBIÇÃO DE QUALQUER ERRO ---
-      (catch Exception e
-        (println "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        (println "!!!!!!   ERRO CRÍTICO NO WORKER. CICLO INTERROMPIDO   !!!!!!")
-        (println "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        (println "\nCAUSA DO ERRO:" (.getMessage e))
-        (println "\nRASTRO COMPLETO (STACK TRACE):")
-        (pprint/pprint (.getStackTrace e)) ; Imprime o rastro completo do erro
-        (println "\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")))
-
-    ;; --- Pausa entre os ciclos ---
-    (println "\n[WORKER] Verificação concluída. Aguardando 10 minutos para o próximo ciclo...")
-    (Thread/sleep 600000)
-    (recur)))
+  (let [app-id (System/getenv "GUPSHUP_APP_ID")
+        token  (System/getenv "GUPSHUP_TOKEN")]
+    (if (and app-id token)
+      (future
+        (println "[WORKER] Watcher em background iniciado.")
+        (loop []
+          (check-for-changes app-id token)
+          (println "[WORKER] Verificação concluída. Próximo ciclo em 10 minutos.")
+          (Thread/sleep 600000) ; Pausa por 10 minutos
+          (recur)))
+      (println "ERRO CRÍTICO: Variáveis de ambiente GUPSHUP_APP_ID e GUPSHUP_TOKEN não definidas."))))
 
 (defn app-handler
-  "Manipulador de requisições web."
+  "Manipulador de requisições web para o health check do Render."
   [request]
-  (println "===> [SERVER] Recebida requisição de health check do Render.")
   {:status  200
    :headers {"Content-Type" "text/plain"}
-   :body    "Notification Watcher service is running."})
+   :body    "Serviço Notification Watcher está no ar."})
 
 (defn -main
-  "Função principal da aplicação."
+  "Ponto de entrada da aplicação."
   [& args]
-  (future (start-gupshup-worker))
-  (let [port-str (System/getenv "PORT")
-        port (if port-str (Integer/parseInt port-str) 8080)]
-    (println (str "===> [SERVER] Iniciando servidor web na porta " port))
+  (let [port (Integer/parseInt (or (System/getenv "PORT") "8080"))]
+    (println (str "[SERVER] Iniciando servidor web na porta " port "."))
+    (start-watcher-loop!) ; Inicia o nosso worker
     (server/run-server #'app-handler {:port port})
-    (println "===> [SERVER] Servidor web iniciado com sucesso.")))
+    (println "[SERVER] Servidor iniciado. O watcher está rodando em background.")))
