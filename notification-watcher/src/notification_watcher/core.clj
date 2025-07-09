@@ -2,18 +2,11 @@
   (:require [clj-http.client :as client]
             [org.httpkit.server :as server]
             [clojure.pprint :as pprint])
-  (:gen-class)) ; <-- O erro estava aqui. Esta linha deve estar dentro do ns.
-
-;; CORREÇÃO - A declaração do namespace (ns) deve ser assim:
-(ns notification-watcher.core
-  (:require [clj-http.client :as client]
-            [org.httpkit.server :as server]
-            [clojure.pprint :as pprint])
   (:gen-class))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  1. FEATURE FLAG E DADOS DE TESTE (LÓGICA ORIGINAL)                        ;;
+;;  1. FEATURE FLAG E DADOS DE TESTE
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (def mock-mode?
@@ -26,7 +19,7 @@
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  2. FUNÇÕES DE LÓGICA DO WATCHER (COM LOG DA RESPOSTA BRUTA)               ;;
+;;  2. FUNÇÕES DE LÓGICA DO WATCHER (COM LOG DA RESPOSTA BRUTA)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn fetch-templates
@@ -46,9 +39,13 @@
                                         :conn-timeout     15000
                                         :socket-timeout   15000})]
 
+          ;; =================================================================
+          ;;      >>>>>>    LOG DE DEPURAÇÃO REINSERIDO AQUI    <<<<<<
+          ;; Imprime o corpo inteiro da resposta da Gupshup de forma legível
           (println "[WORKER] RESPOSTA BRUTA RECEBIDA DA GUPSHUP:")
           (pprint/pprint (:body response))
           (println "=========================================================")
+          ;; =================================================================
 
           (if (= (:status response) 200)
             (get-in (:body response) [:templates] [])
@@ -86,7 +83,7 @@
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  3. LÓGICA DO SERVIDOR E PONTO DE ENTRADA                                  ;;
+;;  3. LÓGICA DO SERVIDOR E PONTO DE ENTRADA
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn- start-watcher-loop!
