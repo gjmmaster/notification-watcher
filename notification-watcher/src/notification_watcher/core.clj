@@ -77,15 +77,23 @@
   [app-id token]
   (println "[WORKER] Executando verificação de templates...")
   (if-let [all-templates (fetch-templates app-id token)]
-    (let [templates-with-old-category (filter #(contains? % :oldCategory) all-templates) ; Alterado para keyword
+    (let [total-received (count all-templates)
+          ;; Filtra para incluir apenas templates que NÃO estão com status "FAILED"
+          active-templates (filter #(not= (:status %) "FAILED") all-templates)
+          total-active (count active-templates)
+
+          templates-with-old-category (filter #(contains? % :oldCategory) active-templates)
           count-changed (count templates-with-old-category)]
+
+      (println (str "[WORKER] Total de templates recebidos da API: " total-received "."))
+      (println (str "[WORKER] Total de templates ativos (não FAILED) sendo processados: " total-active "."))
+
       (if (pos? count-changed)
         (do
-          (println (str "[WORKER] " count-changed " templates com mudança de categoria encontrados."))
+          (println (str "[WORKER] Dentre os ativos, " count-changed " templates com mudança de categoria encontrados."))
           (doseq [template templates-with-old-category]
             (log-category-change template)))
-        (println "[WORKER] Nenhum template com mudança de categoria encontrado."))
-      (println (str "[WORKER] Total de templates recebidos da API: " (count all-templates))))
+        (println "[WORKER] Nenhum template ativo com mudança de categoria encontrado.")))
     (println "[WORKER] Não foi possível obter a lista de templates para verificação.")))
 
 
