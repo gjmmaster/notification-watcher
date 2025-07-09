@@ -122,6 +122,13 @@ O sistema é desenhado como uma arquitetura de microsserviços para promover des
     *   Remover/Desativar um cliente.
 3.  O **`customer-manager-service`** valida os dados e persiste as mudanças em seu banco de dados de clientes.
 
+**3.3.3. Exemplo de Fluxo Prático (História de Usuário):**
+
+Para uma visualização detalhada de como esses fluxos operam em um cenário prático, desde a detecção da mudança de categoria até o envio da notificação por SMS para um cliente específico, consulte o documento complementar:
+*   **[SNCT_Exemplo_Fluxo_Usuario.md](SNCT_Exemplo_Fluxo_Usuario.md)**
+
+Este documento narrativo descreve a "jornada da notificação" passo a passo, ilustrando as interações entre os microsserviços e as APIs.
+
 -----
 
 ## 4. Pilha Tecnológica (Stack) Proposta
