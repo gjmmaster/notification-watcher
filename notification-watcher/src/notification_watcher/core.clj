@@ -33,12 +33,14 @@
     (let [url (str "https://api.gupshup.io/sm/api/v1/template/list/" app-id)]
       (println (str "[WORKER] Tentando conexão com a API. App ID: " app-id ", URL: " url))
       (try
+        (println "[WORKER] PREPARANDO PARA EXECUTAR client/get...")
         (let [response (client/get url {:headers          {:apikey token}
                                         :as               :json ; Tenta parsear como JSON, mas precisamos verificar o status antes
                                         :throw-exceptions false ; Importante para podermos inspecionar respostas não-200
-                                        :conn-timeout     15000
-                                        :socket-timeout   15000})]
-
+                                        :conn-timeout     60000 ; Aumentado para 60s
+                                        :socket-timeout   60000 ; Aumentado para 60s
+                                        })]
+          (println "[WORKER] client/get EXECUTADO. Processando resposta...")
           (println (str "[WORKER] Resposta recebida da API. Status HTTP: " (:status response)))
 
           (if (= (:status response) 200)
