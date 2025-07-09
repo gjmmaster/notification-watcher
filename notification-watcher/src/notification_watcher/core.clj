@@ -4,7 +4,7 @@
   (:gen-class))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  1. FEATURE FLAG E DADOS DE TESTE (LÓGICA RESTAURADA)                       ;;
+;;  1. FEATURE FLAG E DADOS DE TESTE (LÓGICA ORIGINAL)                        ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (def mock-mode?
@@ -12,19 +12,18 @@
   (= (System/getenv "MOCK_MODE") "true"))
 
 (def mock-templates-com-mudanca
-  "Dados de teste que simulam uma mudança de categoria. As chaves são strings
-   para simular perfeitamente a resposta da API."
+  "Dados de teste que simulam uma mudança de categoria."
   [{"elementName" "template_normal_1", "wabaId" "111222333", "category" "MARKETING"}
    {"elementName" "template_que_mudou", "wabaId" "444555666", "category" "UTILITY", "oldCategory" "MARKETING"}
    {"elementName" "template_normal_2", "wabaId" "777888999", "category" "AUTHENTICATION"}])
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  2. FUNÇÕES DE LÓGICA DO WATCHER (LÓGICA RESTAURADA)                       ;;
+;;  2. FUNÇÕES DE LÓGICA DO WATCHER (COM DIAGNÓSTICO DE REDE)                 ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn fetch-templates
-  "Busca templates. Usa dados de teste se mock-mode? for true, senão chama a API real."
+  "Busca templates. Usa dados de teste ou chama a API real COM TIMEOUT."
   [app-id token]
   (if mock-mode?
     ;; --- MODO DE TESTE ---
@@ -32,25 +31,31 @@
       (println "[MODO DE TESTE ATIVADO] Usando dados mockados para a verificação.")
       mock-templates-com-mudanca)
 
-    ;; --- MODO REAL ---
+    ;; --- MODO REAL (COM TIMEOUT E LOGS MELHORADOS) ---
     (let [url (str "https://api.gupshup.io/sm/api/v1/template/list/" app-id)]
+      (println (str "[WORKER] Tentando conexão com a API em: " url))
       (try
         (let [response (client/get url {:headers          {:apikey token}
-                                        :as               :json ; Pede para o clj-http parsear o JSON
+                                        :as               :json
                                         :throw-exceptions false
-                                        :conn-timeout     15000 ; Aumentado para 15s
+                                        ;; ADIÇÃO CRÍTICA: Força um erro se a conexão demorar mais de 15 segundos
+                                        :conn-timeout     15000
                                         :socket-timeout   15000})]
           (if (= (:status response) 200)
-            (get-in (:body response) [:templates] []) ; Pega a lista de templates de forma segura
+            (get-in (:body response) [:templates] []) ; Pega a lista de forma segura
             (do
-              (println (str "Erro ao buscar templates. Status: " (:status response) " | Body: " (pr-str (:body response))))
+              (println (str "[WORKER] Erro ao buscar templates. Status: " (:status response) " | Body: " (pr-str (:body response))))
               nil)))
         (catch Exception e
-          (println (str "Exceção CRÍTICA ao buscar templates: " (.getMessage e)))
+          ;; ADIÇÃO CRÍTICA: Imprime o erro completo para diagnóstico
+          (println "\n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+          (println "!!!! [WORKER] Exceção CRÍTICA ao tentar conectar com a API !!!!")
+          (.printStackTrace e) ; Imprime o stack trace completo do erro
+          (println "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
           nil)))))
 
 (defn log-change-notification
-  "Loga uma notificação de mudança de template no console, no formato original."
+  "Loga uma notificação de mudança de template no console."
   [template]
   (let [elementName (get template "elementName")
         wabaId      (get template "wabaId")
@@ -70,14 +75,13 @@
     (do
       (println (str "[WORKER] " (count templates) " templates recebidos. Procurando por mudanças..."))
       (doseq [template templates]
-        ;; A lógica original: verifica se a chave "oldCategory" existe.
         (when (get template "oldCategory")
           (log-change-notification template))))
-    (println "[WORKER] Não foi possível obter a lista de templates para verificação.")))
+    (println "[WORKER] Não foi possível obter a lista de templates para verificação (verifique logs de erro acima).")))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;  3. LÓGICA DO SERVIDOR E PONTO DE ENTRADA (ESTRUTURA COMPATÍVEL)           ;;
+;;  3. LÓGICA DO SERVIDOR E PONTO DE ENTRADA (COMPATÍVEL COM RENDER)          ;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn- start-watcher-loop!
@@ -107,6 +111,6 @@
   [& args]
   (let [port (Integer/parseInt (or (System/getenv "PORT") "8080"))]
     (println (str "[SERVER] Iniciando servidor web na porta " port "."))
-    (start-watcher-loop!) ; Inicia o nosso worker
+    (start-watcher-loop!)
     (server/run-server #'app-handler {:port port})
     (println "[SERVER] Servidor iniciado. O watcher está rodando em background.")))
