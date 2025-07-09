@@ -58,27 +58,31 @@
           (println "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
           nil)))))
 
-(defn log-change-notification
+(defn log-category-change
   [template]
-  (let [elementName (get template "elementName")
-        wabaId      (get template "wabaId")
+  (let [id          (get template "id")
+        elementName (get template "elementName")
         oldCategory (get template "oldCategory")
-        category    (get template "category")]
-    (println "\n--- MUDANÇA DETECTADA ---")
-    (println (str "Template: '" elementName "' (WABA ID: " wabaId ")"))
-    (println (str "Categoria anterior: " oldCategory))
-    (println (str "Nova categoria: " category))
-    (println "---------------------------\n")))
+        newCategory (get template "category")]
+    (println (str "[WORKER] Mudança de categoria detectada para o template:"))
+    (println (str "  ID: " id))
+    (println (str "  Nome: " elementName))
+    (println (str "  Categoria Antiga: " oldCategory))
+    (println (str "  Nova Categoria: " newCategory))))
 
 (defn check-for-changes
   [app-id token]
   (println "[WORKER] Executando verificação de templates...")
-  (if-let [templates (fetch-templates app-id token)]
-    (do
-      (println (str "[WORKER] " (count templates) " templates recebidos. Procurando por mudanças..."))
-      (doseq [template templates]
-        (when (get template "oldCategory")
-          (log-change-notification template))))
+  (if-let [all-templates (fetch-templates app-id token)]
+    (let [templates-with-old-category (filter #(contains? % "oldCategory") all-templates)
+          count-changed (count templates-with-old-category)]
+      (if (pos? count-changed)
+        (do
+          (println (str "[WORKER] " count-changed " templates com mudança de categoria encontrados."))
+          (doseq [template templates-with-old-category]
+            (log-category-change template)))
+        (println "[WORKER] Nenhum template com mudança de categoria encontrado."))
+      (println (str "[WORKER] Total de templates recebidos da API: " (count all-templates))))
     (println "[WORKER] Não foi possível obter a lista de templates para verificação.")))
 
 
