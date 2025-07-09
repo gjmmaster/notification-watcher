@@ -30,20 +30,19 @@
       (println "[MODO DE TESTE ATIVADO] Usando dados mockados.")
       mock-templates-com-mudanca)
 
-    (let [;;url (str "https://api.gupshup.io/sm/api/v1/template/list/" app-id) ; URL Original comentada
-          url "https://jsonplaceholder.typicode.com/todos/1" ; URL de Teste
+    (let [url (str "https://api.gupshup.io/sm/api/v1/template/list/" app-id) ; URL Original restaurada
           ]
-      (println (str "[WORKER] Tentando conexão com API DE TESTE. URL: " url))
+      (println (str "[WORKER] Tentando conexão com a API Gupshup. App ID: " app-id ", URL: " url))
       (try
-        (println "[WORKER] PREPARANDO PARA EXECUTAR client/get (TESTE)...")
-        (let [response (client/get url {;;:headers          {:apikey token} ; Removido para URL de teste
+        (println "[WORKER] PREPARANDO PARA EXECUTAR client/get...")
+        (let [response (client/get url {:headers          {:apikey token} ; Header restaurado
                                         :as               :json
                                         :throw-exceptions false
                                         :conn-timeout     60000
                                         :socket-timeout   60000
                                         })]
-          (println "[WORKER] client/get (TESTE) EXECUTADO. Processando resposta...")
-          (println (str "[WORKER] Resposta recebida da API DE TESTE. Status HTTP: " (:status response)))
+          (println "[WORKER] client/get EXECUTADO. Processando resposta...")
+          (println (str "[WORKER] Resposta recebida da API Gupshup. Status HTTP: " (:status response)))
 
           (if (= (:status response) 200)
             (do
@@ -51,11 +50,11 @@
               (pprint/pprint (:body response)) ;; Loga o corpo parseado
               (get-in (:body response) [:templates] [])) ; Extrai templates se o corpo for como esperado
             (do
-              (println (str "[WORKER] Erro ao buscar templates. Status HTTP: " (:status response) ". Corpo da resposta (se houver):"))
+              (println (str "[WORKER] Erro ao buscar templates da Gupshup. Status HTTP: " (:status response) ". Corpo da resposta (se houver):"))
               (pprint/pprint (:body response)) ;; Loga o corpo mesmo se não for 200, pode conter mensagens de erro da API
               nil)))
         (catch Exception e
-          (println "\n!!!! [WORKER] Exceção CRÍTICA ao conectar com a API ou processar resposta !!!!")
+          (println "\n!!!! [WORKER] Exceção CRÍTICA ao conectar com a API Gupshup ou processar resposta !!!!")
           (println (str "Tipo da exceção: " (type e)))
           (println (str "Mensagem: " (.getMessage e)))
           (.printStackTrace e)
@@ -100,11 +99,20 @@
         token  (System/getenv "GUPSHUP_TOKEN")]
     (if (and app-id token)
       (future
-        (println "[WORKER] Watcher em background iniciado.")
+        (println "[WORKER] Watcher em background iniciado. Aguardando 30s antes do primeiro ciclo...")
+        (Thread/sleep 30000) ; Atraso inicial de 30 segundos
         (loop []
-          (check-for-changes app-id token)
-          (println "[WORKER] Verificação concluída. Próximo ciclo em 10 minutos.")
-          (Thread/sleep 600000)
+          (try
+            (check-for-changes app-id token)
+            (println "[WORKER] Verificação concluída. Próximo ciclo em 2 minutos.")
+            (catch Throwable t ; Captura qualquer Throwable
+              (println "\n!!!! [WORKER] Exceção INESPERADA no loop principal do watcher !!!!")
+              (println (str "Tipo da exceção: " (type t)))
+              (println (str "Mensagem: " (.getMessage t)))
+              (.printStackTrace t)
+              (println "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
+              (println "[WORKER] Erro no ciclo. Tentando novamente em 2 minutos.")))
+          (Thread/sleep 120000) ; Intervalo de 2 minutos
           (recur)))
       (println "ERRO CRÍTICO: Variáveis de ambiente não definidas."))))
 
