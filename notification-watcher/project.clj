@@ -9,6 +9,9 @@
                  ;; Cliente HTTP para consumir a API da Gupshup
                  [clj-http "3.12.3"]
 
+                 ;; Parser JSON (necessário para :as :json com clj-http)
+                 [cheshire "5.12.0"]
+
                  ;; Servidor web e roteamento (abordagem moderna)
                  [http-kit "2.7.0"]
                  [metosin/reitit-ring "0.7.0-alpha7"]]
