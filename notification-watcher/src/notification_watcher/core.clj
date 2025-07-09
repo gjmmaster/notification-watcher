@@ -34,14 +34,14 @@
           ]
       (println (str "[WORKER] Tentando conexão com a API Gupshup. App ID: " app-id ", URL: " url))
       (try
-        (println "[WORKER] PREPARANDO PARA EXECUTAR client/get...")
+        ;; (println "[WORKER] PREPARANDO PARA EXECUTAR client/get...") ; Log de depuração removido
         (let [response (client/get url {:headers          {:apikey token} ; Header restaurado
                                         :as               :json
                                         :throw-exceptions false
                                         :conn-timeout     60000
                                         :socket-timeout   60000
                                         })]
-          (println "[WORKER] client/get EXECUTADO. Processando resposta...")
+          ;; (println "[WORKER] client/get EXECUTADO. Processando resposta...") ; Log de depuração removido
           (println (str "[WORKER] Resposta recebida da API Gupshup. Status HTTP: " (:status response)))
 
           (if (= (:status response) 200)
@@ -63,10 +63,10 @@
 
 (defn log-category-change
   [template]
-  (let [id          (get template "id")
-        elementName (get template "elementName")
-        oldCategory (get template "oldCategory")
-        newCategory (get template "category")]
+  (let [id          (get template :id)
+        elementName (get template :elementName)
+        oldCategory (get template :oldCategory)
+        newCategory (get template :category)]
     (println (str "[WORKER] Mudança de categoria detectada para o template:"))
     (println (str "  ID: " id))
     (println (str "  Nome: " elementName))
@@ -77,7 +77,7 @@
   [app-id token]
   (println "[WORKER] Executando verificação de templates...")
   (if-let [all-templates (fetch-templates app-id token)]
-    (let [templates-with-old-category (filter #(contains? % "oldCategory") all-templates)
+    (let [templates-with-old-category (filter #(contains? % :oldCategory) all-templates) ; Alterado para keyword
           count-changed (count templates-with-old-category)]
       (if (pos? count-changed)
         (do
@@ -104,15 +104,15 @@
         (loop []
           (try
             (check-for-changes app-id token)
-            (println "[WORKER] Verificação concluída. Próximo ciclo em 2 minutos.")
+            (println "[WORKER] Verificação concluída. Próximo ciclo em 10 minutos.")
             (catch Throwable t ; Captura qualquer Throwable
               (println "\n!!!! [WORKER] Exceção INESPERADA no loop principal do watcher !!!!")
               (println (str "Tipo da exceção: " (type t)))
               (println (str "Mensagem: " (.getMessage t)))
               (.printStackTrace t)
               (println "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
-              (println "[WORKER] Erro no ciclo. Tentando novamente em 2 minutos.")))
-          (Thread/sleep 120000) ; Intervalo de 2 minutos
+              (println "[WORKER] Erro no ciclo. Tentando novamente em 10 minutos.")))
+          (Thread/sleep 600000) ; Intervalo de 10 minutos
           (recur)))
       (println "ERRO CRÍTICO: Variáveis de ambiente não definidas."))))
 
