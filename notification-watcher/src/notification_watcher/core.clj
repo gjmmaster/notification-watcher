@@ -1,8 +1,16 @@
 (ns notification-watcher.core
   (:require [clj-http.client :as client]
             [org.httpkit.server :as server]
-            [clojure.pprint :as pprint])) ; Adicionado para imprimir o JSON de forma legível
+            [clojure.pprint :as pprint])
+  (:gen-class)) ; <-- O erro estava aqui. Esta linha deve estar dentro do ns.
+
+;; CORREÇÃO - A declaração do namespace (ns) deve ser assim:
+(ns notification-watcher.core
+  (:require [clj-http.client :as client]
+            [org.httpkit.server :as server]
+            [clojure.pprint :as pprint])
   (:gen-class))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  1. FEATURE FLAG E DADOS DE TESTE (LÓGICA ORIGINAL)                        ;;
@@ -37,14 +45,10 @@
                                         :throw-exceptions false
                                         :conn-timeout     15000
                                         :socket-timeout   15000})]
-          
-          ;; =================================================================
-          ;;      >>>>>>    ADIÇÃO CRÍTICA PARA DEPURAÇÃO    <<<<<<
-          ;; Imprime o corpo inteiro da resposta da Gupshup de forma legível
+
           (println "[WORKER] RESPOSTA BRUTA RECEBIDA DA GUPSHUP:")
           (pprint/pprint (:body response))
           (println "=========================================================")
-          ;; =================================================================
 
           (if (= (:status response) 200)
             (get-in (:body response) [:templates] [])
