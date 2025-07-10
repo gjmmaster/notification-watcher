@@ -16,7 +16,10 @@
                  [http-kit "2.7.0"]
                  [metosin/reitit-ring "0.7.0-alpha7"]]
 
+  :profiles {:dev {:dependencies [[clj-http-fake "1.0.4"]]} ;; Added for mocking HTTP requests
+             :uberjar {:aot :all
+                       :jvm-opts ["-Dclojure.compiler.direct-linking=true"]}}
+
   :main ^:skip-aot notification-watcher.core
-  :target-path "target/%s"
-  :profiles {:uberjar {:aot :all
-                       :jvm-opts ["-Dclojure.compiler.direct-linking=true"]}})
+  :target-path "target/%s")
+;; Removed duplicate :profiles key that was causing the error
