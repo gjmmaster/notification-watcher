@@ -48,7 +48,7 @@
             (do
               (println "[WORKER] Resposta da API Gupshup (status 200 OK). Corpo:")
               (pprint/pprint (:body response)) ;; Loga o corpo parseado
-              (get-in (:body response) [:templates] [])) ; Extrai templates se o corpo for como esperado
+              (or (get-in (:body response) [:templates]) [])) ; Garante [] se :templates for nil
             (do
               (println (str "[WORKER] Erro ao buscar templates da Gupshup. Status HTTP: " (:status response) ". Corpo da resposta (se houver):"))
               (pprint/pprint (:body response)) ;; Loga o corpo mesmo se não for 200, pode conter mensagens de erro da API
@@ -78,15 +78,20 @@
   (println "[WORKER] Executando verificação de templates...")
   (if-let [all-templates (fetch-templates app-id token)]
     (let [total-received (count all-templates)
-          ;; Filtra para incluir apenas templates que NÃO estão com status "FAILED"
-          active-templates (filter #(not= (:status %) "FAILED") all-templates)
+          ;; Primeiro, filtra para garantir que estamos lidando apenas com mapas
+          map-templates (filter map? all-templates)
+          ;; Filtra para incluir apenas templates que NÃO estão com status "FAILED" a partir dos map-templates
+          active-templates (filter #(not= (:status %) "FAILED") map-templates)
           total-active (count active-templates)
 
+          ;; Filtra templates ativos que possuem a chave :oldCategory
           templates-with-old-category (filter #(contains? % :oldCategory) active-templates)
           count-changed (count templates-with-old-category)]
 
       (println (str "[WORKER] Total de templates recebidos da API: " total-received "."))
-      (println (str "[WORKER] Total de templates ativos (não FAILED) sendo processados: " total-active "."))
+      (when (not= total-received (count map-templates))
+        (println (str "[WORKER] Número de itens não-mapa ignorados: " (- total-received (count map-templates)) ".")))
+      (println (str "[WORKER] Total de templates ativos (não FAILED, apenas mapas) sendo processados: " total-active "."))
 
       (if (pos? count-changed)
         (do

@@ -68,13 +68,28 @@
          (fn [request] {:status 200 :headers {} :body "{\"status\":\"success\",\"templates\":[{\"elementName\":\"tpl1\""})} ; Malformed JSON
         (let [templates (fetch-templates "test-app-id" "test-token")
               output (with-out-str (fetch-templates "test-app-id" "test-token"))]
-          ;; Depending on how cheshire handles malformed JSON with :as :json,
-          ;; it might throw an exception caught by the outer try-catch, or return nil from parsing.
-          ;; The current code's catch block for client/get would handle exceptions from cheshire.
-          ;; If cheshire returns nil or an empty map on error without throwing, the (get-in (:body response) ...) would yield [].
-          ;; Let's assume it throws and gets caught by the main catch.
-           (is (nil? templates))
-           (is (some? (re-find #"!!!! \[WORKER\] Exceção CRÍTICA ao conectar com a API Gupshup ou processar resposta !!!!" output)))))))
+          (is (nil? templates))
+          (is (some? (re-find #"!!!! \[WORKER\] Exceção CRÍTICA ao conectar com a API Gupshup ou processar resposta !!!!" output)))))))
+
+  (testing "fetch-templates with API returning 200 OK but templates field is null"
+    (with-redefs [notification-watcher.core/mock-mode? false]
+      (fake/with-fake-routes
+        {"https://api.gupshup.io/sm/api/v1/template/list/test-app-id"
+         (fn [request] {:status 200 :headers {} :body "{\"status\":\"success\",\"templates\":null}"})}
+        (let [templates (fetch-templates "test-app-id" "test-token")]
+          (is (= [] templates)) ; Default value from get-in
+          (is (some? (re-find #"\[WORKER\] Resposta da API Gupshup \(status 200 OK\). Corpo:" (with-out-str (fetch-templates "test-app-id" "test-token")))))))))
+
+  (testing "fetch-templates with API returning 200 OK but templates array contains non-map elements"
+    (with-redefs [notification-watcher.core/mock-mode? false]
+      (fake/with-fake-routes
+        {"https://api.gupshup.io/sm/api/v1/template/list/test-app-id"
+         (fn [request] {:status 200 :headers {} :body "{\"status\":\"success\",\"templates\":[{\"elementName\":\"tpl1\"}, \"string-element\", null, {\"elementName\":\"tpl2\"}]}"})}
+        (let [templates (fetch-templates "test-app-id" "test-token")
+              output (with-out-str (fetch-templates "test-app-id" "test-token"))]
+          (is (= [{:elementName "tpl1"} "string-element" nil {:elementName "tpl2"}] templates))
+          (is (some? (re-find #"\[WORKER\] Resposta da API Gupshup \(status 200 OK\)." output)))))))
+
 
 (deftest check-for-changes-test
   (testing "check-for-changes with templates having category changes"
@@ -101,15 +116,70 @@
                                      {:id "3", :elementName "tpl3", :category "AUTHENTICATION", :status "ACTIVE"}])]
       (let [output (with-out-str (check-for-changes "test-app-id" "test-token"))]
         (is (some? (re-find #"\[WORKER\] Total de templates recebidos da API: 3." output)))
-        (is (some? (re-find #"\[WORKER\] Total de templates ativos \(não FAILED\) sendo processados: 2." output)))
+        (is (some? (re-find #"\[WORKER\] Total de templates ativos \(não FAILED, apenas mapas\) sendo processados: 2." output)))
         (is (some? (re-find #"\[WORKER\] Dentre os ativos, 1 templates com mudança de categoria encontrados." output)))
         (is (some? (re-find #"Nome: tpl1" output))))))
+
+  (testing "check-for-changes with various template statuses"
+    (with-redefs [fetch-templates (fn [app-id token]
+                                    [{:id "1", :elementName "tpl-active-changed", :category "MARKETING", :oldCategory "UTILITY", :status "ACTIVE"}
+                                     {:id "2", :elementName "tpl-pending", :category "UTILITY", :status "PENDING"}
+                                     {:id "3", :elementName "tpl-rejected-changed", :category "AUTHENTICATION", :oldCategory "UTILITY", :status "REJECTED"}
+                                     {:id "4", :elementName "tpl-failed", :category "MARKETING", :status "FAILED"}
+                                     {:id "5", :elementName "tpl-active-no-change", :category "UTILITY", :status "ACTIVE"}])]
+      (let [output (with-out-str (check-for-changes "test-app-id" "test-token"))]
+        (is (some? (re-find #"\[WORKER\] Total de templates recebidos da API: 5." output)))
+        (is (some? (re-find #"\[WORKER\] Total de templates ativos \(não FAILED, apenas mapas\) sendo processados: 4." output))) ; ACTIVE, PENDING, REJECTED
+        (is (some? (re-find #"\[WORKER\] Dentre os ativos, 2 templates com mudança de categoria encontrados." output)))
+        (is (some? (re-find #"Nome: tpl-active-changed" output)))
+        (is (some? (re-find #"Nome: tpl-rejected-changed" output)))
+        (is (not (some? (re-find #"Nome: tpl-pending" output)))) ; No change logged
+        (is (not (some? (re-find #"Nome: tpl-failed" output))))))) ; Not active, no change logged
+
+  (testing "check-for-changes with active template where oldCategory equals category"
+    (with-redefs [fetch-templates (fn [app-id token]
+                                    [{:id "1", :elementName "tpl-no-real-change", :category "MARKETING", :oldCategory "MARKETING", :status "ACTIVE"}
+                                     {:id "2", :elementName "tpl-real-change", :category "UTILITY", :oldCategory "MARKETING", :status "ACTIVE"}])]
+      (let [output (with-out-str (check-for-changes "test-app-id" "test-token"))]
+        (is (some? (re-find #"\[WORKER\] Total de templates recebidos da API: 2." output)))
+        (is (some? (re-find #"\[WORKER\] Total de templates ativos \(não FAILED, apenas mapas\) sendo processados: 2." output)))
+        ;; Current logic logs if oldCategory is present, regardless of actual change
+        (is (some? (re-find #"\[WORKER\] Dentre os ativos, 2 templates com mudança de categoria encontrados." output)))
+        (is (some? (re-find #"Nome: tpl-no-real-change" output)))
+        (is (some? (re-find #"Categoria Antiga: MARKETING" output)))
+        (is (some? (re-find #"Nova Categoria: MARKETING" output)))
+        (is (some? (re-find #"Nome: tpl-real-change" output))))))
+
+  (testing "check-for-changes with active template, oldCategory present, but category missing"
+    (with-redefs [fetch-templates (fn [app-id token]
+                                    [{:id "1", :elementName "tpl-missing-category", :oldCategory "UTILITY", :status "ACTIVE"}])]
+      (let [output (with-out-str (check-for-changes "test-app-id" "test-token"))]
+        (is (some? (re-find #"\[WORKER\] Total de templates recebidos da API: 1." output)))
+        (is (some? (re-find #"\[WORKER\] Total de templates ativos \(não FAILED, apenas mapas\) sendo processados: 1." output)))
+        (is (some? (re-find #"\[WORKER\] Dentre os ativos, 1 templates com mudança de categoria encontrados." output)))
+        (is (some? (re-find #"Nome: tpl-missing-category" output)))
+        (is (some? (re-find #"Categoria Antiga: UTILITY" output)))
+        (is (some? (re-find #"Nova Categoria: \s*$" output)))))) ; nil becomes empty string in str, check for optional space and end of line
+
+  (testing "check-for-changes with template list containing non-map elements"
+    (with-redefs [fetch-templates (fn [app-id token]
+                                     [{:id "1", :elementName "tpl1", :category "MARKETING", :oldCategory "UTILITY", :status "ACTIVE"}
+                                      "a-string-template" ; Non-map element
+                                      nil ; Another non-map element
+                                      {:id "2", :elementName "tpl2", :category "UTILITY", :status "ACTIVE"}])]
+      (let [output (with-out-str (check-for-changes "test-app-id" "test-token"))]
+        (is (some? (re-find #"\[WORKER\] Total de templates recebidos da API: 4." output)))
+        (is (some? (re-find #"\[WORKER\] Número de itens não-mapa ignorados: 2." output)))
+        (is (some? (re-find #"\[WORKER\] Total de templates ativos \(não FAILED, apenas mapas\) sendo processados: 2." output)))
+        (is (some? (re-find #"\[WORKER\] Dentre os ativos, 1 templates com mudança de categoria encontrados." output)))
+        (is (some? (re-find #"Nome: tpl1" output)))
+        (is (not (some? (re-find #"Nome: tpl2" output))))))) ; tpl2 has no oldCategory
 
   (testing "check-for-changes with an empty list of templates from fetch-templates"
     (with-redefs [fetch-templates (fn [app-id token] [])]
       (let [output (with-out-str (check-for-changes "test-app-id" "test-token"))]
         (is (some? (re-find #"\[WORKER\] Total de templates recebidos da API: 0." output)))
-        (is (some? (re-find #"\[WORKER\] Total de templates ativos \(não FAILED\) sendo processados: 0." output)))
+        (is (some? (re-find #"\[WORKER\] Total de templates ativos \(não FAILED, apenas mapas\) sendo processados: 0." output)))
         (is (some? (re-find #"\[WORKER\] Nenhum template ativo com mudança de categoria encontrado." output))))))
 
   (testing "check-for-changes when fetch-templates returns nil (simulating API error)"
