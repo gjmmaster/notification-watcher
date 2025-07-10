@@ -34,26 +34,49 @@
           ]
       (println (str "[WORKER] Tentando conexão com a API Gupshup. App ID: " app-id ", URL: " url))
       (try
-        ;; (println "[WORKER] PREPARANDO PARA EXECUTAR client/get...") ; Log de depuração removido
         (let [response (client/get url {:headers          {:apikey token} ; Header restaurado
                                         :as               :json
                                         :throw-exceptions false
                                         :conn-timeout     60000
                                         :socket-timeout   60000
                                         })]
-          ;; (println "[WORKER] client/get EXECUTADO. Processando resposta...") ; Log de depuração removido
           (println (str "[WORKER] Resposta recebida da API Gupshup. Status HTTP: " (:status response)))
 
-          (if (= (:status response) 200)
+          (cond
+            ;; Erro na própria requisição HTTP (ex: timeout, problema de rede antes de receber status)
+            ;; :error é preenchido por clj-http em alguns casos de falha de request
+            (:error response)
             (do
-              (println "[WORKER] Resposta da API Gupshup (status 200 OK). Corpo:")
-              (pprint/pprint (:body response)) ;; Loga o corpo parseado
-              (or (get-in (:body response) [:templates]) [])) ; Garante [] se :templates for nil
+              (println (str "[WORKER] Erro crítico de HTTP ao buscar templates: " (:error response)))
+              (when-let [cause (:cause (:error response))]
+                (println (str "Causa: " cause)))
+              nil)
+
+            ;; Resposta HTTP não foi 200 OK
+            (not= (:status response) 200)
             (do
               (println (str "[WORKER] Erro ao buscar templates da Gupshup. Status HTTP: " (:status response) ". Corpo da resposta (se houver):"))
-              (pprint/pprint (:body response)) ;; Loga o corpo mesmo se não for 200, pode conter mensagens de erro da API
-              nil)))
-        (catch Exception e
+              (pprint/pprint (:body response))
+              nil)
+
+            ;; Resposta HTTP foi 200 OK, mas o corpo não é um mapa (ex: string não-JSON que clj-http não conseguiu parsear com :as :json)
+            (not (map? (:body response)))
+            (do
+              (println "[WORKER] Resposta da API Gupshup (status 200 OK) mas corpo não é um mapa JSON. Corpo:")
+              (pprint/pprint (:body response))
+              (println "\n!!!! [WORKER] ALERTA: Corpo da API Gupshup não é um mapa JSON válido após status 200 OK. Retornando nil. !!!!")
+              (println (str "Tipo do corpo recebido: " (type (:body response))))
+              (println "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
+              nil)
+
+            ;; Tudo OK, corpo é um mapa, prossiga para extrair templates
+            :else
+            (do
+              (println "[WORKER] Resposta da API Gupshup (status 200 OK). Corpo:")
+              (pprint/pprint (:body response))
+              (or (get-in (:body response) [:templates]) [])))) ; Garante [] se :templates for nil ou ausente
+
+        (catch Exception e ; Captura exceções de rede (como ConnectException) ou outras exceções inesperadas.
           (println "\n!!!! [WORKER] Exceção CRÍTICA ao conectar com a API Gupshup ou processar resposta !!!!")
           (println (str "Tipo da exceção: " (type e)))
           (println (str "Mensagem: " (.getMessage e)))
