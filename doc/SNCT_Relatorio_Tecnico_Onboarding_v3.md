@@ -244,6 +244,29 @@ Exemplos:
     *   `lein run` (para workers como `sms-notifier`, `notification-watcher`) ou `lein ring server-headless <port>` (para APIs como `customer-manager-service`).
 3.  Execute os serviços em terminais separados.
 
+**5.X Requisito Crítico de Deploy: Configuração de Timeouts**
+Devido à natureza dos planos gratuitos de plataformas como o Render.com, os serviços que ficam inativos entram em estado de hibernação ("spin down"). A primeira requisição a um serviço hibernado sofre um atraso significativo ("cold start") enquanto a plataforma "acorda" o contêiner.
+
+Para garantir a resiliência da comunicação em cadeia entre os microsserviços (sms-notifier -> notification-watcher -> customer-manager-service), é obrigatório configurar um tempo de timeout generoso em todas as chamadas de cliente HTTP entre os serviços.
+
+Implementação:
+Ao usar clj-http, a configuração deve ser aplicada em cada chamada client/get ou client/post entre os serviços, aumentando o tempo de espera para pelo menos 60 segundos (60000 milissegundos).
+
+Exemplo de Código (Clojure):
+
+```clojure
+(require '[clj-http.client :as client])
+
+;; Exemplo de chamada do sms-notifier para o notification-watcher
+(client/get "http://notification-watcher-url/endpoint"
+            {;; Timeout de conexão: tempo para estabelecer a conexão.
+             :conn-timeout 60000
+             ;; Timeout de socket: tempo de espera pela resposta após a conexão ser estabelecida.
+             :socket-timeout 60000
+             :as :json})
+```
+Atenção: Esta configuração é vital e deve ser aplicada em todas as chamadas de serviço-a-serviço para prevenir falhas no fluxo de notificação.
+
 -----
 
 ## 6. Detalhes das APIs (Contratos Preliminares)
