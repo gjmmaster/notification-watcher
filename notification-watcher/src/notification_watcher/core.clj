@@ -28,10 +28,10 @@
 (defonce changed-templates-atom (atom []))
 
 (defn- generate-mock-templates-for-waba [waba-id]
-  [{"id" (str "tpl_normal_" waba-id "_1") "elementName" (str "Template Normal " waba-id " Alpha") "wabaId" waba-id "category" "MARKETING" "status" "APPROVED" "language" "pt_BR"}
-   {"id" (str "tpl_changed_" waba-id "_2") "elementName" (str "Template Alterado " waba-id " Bravo") "wabaId" waba-id "category" "UTILITY" "oldCategory" "MARKETING" "status" "APPROVED" "language" "en_US"}
-   {"id" (str "tpl_failed_" waba-id "_3") "elementName" (str "Template Falhado " waba-id " Charlie") "wabaId" waba-id "category" "AUTHENTICATION" "status" "FAILED" "language" "es_ES"}
-   {"id" (str "tpl_another_changed_" waba-id "_4") "elementName" (str "Outro Alterado " waba-id " Delta") "wabaId" waba-id "category" "AUTHENTICATION" "oldCategory" "UTILITY" "status" "APPROVED" "language" "pt_BR"}])
+  [{:id (str "tpl_normal_" waba-id "_1") :elementName (str "Template Normal " waba-id " Alpha") :wabaId waba-id :category "MARKETING" :status "APPROVED" :language "pt_BR"}
+   {:id (str "tpl_changed_" waba-id "_2") :elementName (str "Template Alterado " waba-id " Bravo") :wabaId waba-id :category "UTILITY" :oldCategory "MARKETING" :status "APPROVED" :language "en_US"}
+   {:id (str "tpl_failed_" waba-id "_3") :elementName (str "Template Falhado " waba-id " Charlie") :wabaId waba-id :category "AUTHENTICATION" :status "FAILED" :language "es_ES"}
+   {:id (str "tpl_another_changed_" waba-id "_4") :elementName (str "Outro Alterado " waba-id " Delta") :wabaId waba-id :category "AUTHENTICATION" :oldCategory "UTILITY" :status "APPROVED" :language "pt_BR"}])
 
 (defn- initialize-mock-gupshup-store! []
   (when gupshup-mock-mode?
@@ -144,10 +144,10 @@
 (defn log-category-change
   "Loga a mudança de categoria de um template."
   [template waba-id]
-  (let [template-id (get template "id")
-        elementName (get template "elementName")
-        oldCategory (get template "oldCategory")
-        newCategory (get template "category")]
+  (let [template-id (:id template)
+        elementName (:elementName template)
+        oldCategory (:oldCategory template)
+        newCategory (:category template)]
     (println (str "[WORKER] Mudança de categoria detectada:"))
     (println (str "  WABA ID: " waba-id))
     (println (str "  ID do Template: " template-id))
@@ -163,17 +163,17 @@
     (if (seq all-templates)
       (let [total-received (count all-templates)
             map-templates (filter map? all-templates)
-            active-templates (filter #(not= (get % "status") "FAILED") map-templates)
+            active-templates (filter #(not= (:status %) "FAILED") map-templates)
             total-active (count active-templates)
-            changed-category-templates (filter #(contains? % "oldCategory") active-templates)
+            changed-category-templates (filter #(contains? % :oldCategory) active-templates)
             count-changed (count changed-category-templates)]
 
         (doseq [template active-templates]
-          (let [tpl-id (get template "templateId" (get template "id" "(id missing)"))
-                tpl-name (get template "templateName" (get template "elementName" "(name missing)"))
-                tpl-cat (get template "templateCategory" (get template "category" "(category missing)"))
-                has-old-cat (or (contains? template "oldCategory") (contains? template "previousCategory"))
-                tpl-old-cat (or (get template "oldCategory") (get template "previousCategory") "(old/previous category not present)")]
+          (let [tpl-id (or (:templateId template) (:id template) "(id missing)")
+                tpl-name (or (:templateName template) (:elementName template) "(name missing)")
+                tpl-cat (or (:templateCategory template) (:category template) "(category missing)")
+                has-old-cat (or (contains? template :oldCategory) (contains? template :previousCategory))
+                tpl-old-cat (or (:oldCategory template) (:previousCategory template) "(old/previous category not present)")]
             (println (str "[WORKER_DEBUG] Template ID: " tpl-id ", Nome: \"" tpl-name "\", Categoria Atual: " tpl-cat ", Possui 'oldCategory/previousCategory'?: " has-old-cat ", Valor: " tpl-old-cat))))
 
         (println (str "[WORKER] Detalhes para WABA ID " waba-id ":"))
