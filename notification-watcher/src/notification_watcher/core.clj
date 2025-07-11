@@ -139,10 +139,10 @@
 (defn log-category-change
   "Loga a mudança de categoria de um template."
   [template waba-id]
-  (let [template-id (get template "id") ; Gupshup API usa strings para chaves
-        elementName (get template "elementName")
-        oldCategory (get template "oldCategory")
-        newCategory (get template "category")]
+  (let [template-id (get template :id) ; Usar keywords
+        elementName (get template :elementName)
+        oldCategory (get template :oldCategory)
+        newCategory (get template :category)]
     (println (str "[WORKER] Mudança de categoria detectada:"))
     (println (str "  WABA ID: " waba-id))
     (println (str "  ID do Template: " template-id))
@@ -159,26 +159,28 @@
     (if (seq all-templates) ; Procede somente se houver templates
       (let [total-received (count all-templates)
             map-templates (filter map? all-templates) ; Garante que são mapas
-            ;; Filtra para incluir apenas templates que NÃO estão com status "FAILED"
-            active-templates (filter #(not= (get % "status") "FAILED") map-templates)
+            ;; Filtra para incluir apenas templates que NÃO estão com status "FAILED" - USAR KEYWORD
+            active-templates (filter #(not= (get % :status) "FAILED") map-templates)
             total-active (count active-templates)]
 
-        ;; DEBUG: Log detalhado de cada template ativo
+        ;; DEBUG: Log detalhado de cada template ativo - USAR KEYWORDS
         (println (str "[WORKER_DEBUG] Verificando " total-active " templates ativos para WABA ID: " waba-id))
         (doseq [template active-templates]
-          (let [tpl-id (get template "id" "N/A")
-                tpl-name (get template "elementName" "N/A")
-                tpl-cat (get template "category" "N/A")
-                has-old-cat (contains? template "oldCategory")
-                tpl-old-cat (get template "oldCategory" "N/A")]
+          (let [tpl-id (get template :id "N/A")
+                tpl-name (get template :elementName "N/A")
+                tpl-cat (get template :category "N/A")
+                has-old-cat (contains? template :oldCategory)
+                tpl-old-cat (get template :oldCategory "N/A")
+                tpl-status (get template :status "N/A")] ; Logar status também
             (println (str "[WORKER_DEBUG] Template ID: " tpl-id
                           ", Nome: \"" tpl-name
                           "\", Categoria Atual: " tpl-cat
-                          ", Possui 'oldCategory'?: " has-old-cat
-                          ", Valor 'oldCategory': " tpl-old-cat))))
+                          ", Status: " tpl-status
+                          ", Possui ':oldCategory'?: " has-old-cat
+                          ", Valor ':oldCategory': " tpl-old-cat))))
 
-        ;; Filtra templates ativos que possuem a chave "oldCategory" (indicando mudança)
-        (let [changed-category-templates (filter #(contains? % "oldCategory") active-templates)
+        ;; Filtra templates ativos que possuem a chave :oldCategory (indicando mudança) - USAR KEYWORD
+        (let [changed-category-templates (filter #(contains? % :oldCategory) active-templates)
               count-changed (count changed-category-templates)]
 
           (println (str "[WORKER] Detalhes para WABA ID " waba-id ":"))
@@ -193,7 +195,7 @@
             (doseq [template changed-category-templates]
               (log-category-change template waba-id))
             ;; Adiciona/atualiza o wabaId em cada template alterado para garantir consistência
-            (map #(assoc % "wabaId" waba-id) changed-category-templates))
+            (map #(assoc % :wabaId waba-id) changed-category-templates)) ; Usar keyword para wabaId também, por consistência, embora aqui não seja crítico
           (do
             (println (str "  Nenhum template ativo com mudança de categoria encontrado para o WABA ID " waba-id "."))
             []))) ; Retorna lista vazia se não houver mudanças
