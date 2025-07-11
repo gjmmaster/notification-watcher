@@ -161,13 +161,28 @@
             map-templates (filter map? all-templates) ; Garante que são mapas
             ;; Filtra para incluir apenas templates que NÃO estão com status "FAILED"
             active-templates (filter #(not= (get % "status") "FAILED") map-templates)
-            total-active (count active-templates)
-            ;; Filtra templates ativos que possuem a chave "oldCategory" (indicando mudança)
-            changed-category-templates (filter #(contains? % "oldCategory") active-templates)
-            count-changed (count changed-category-templates)]
+            total-active (count active-templates)]
 
-        (println (str "[WORKER] Detalhes para WABA ID " waba-id ":"))
-        (println (str "  Total de templates recebidos: " total-received "."))
+        ;; DEBUG: Log detalhado de cada template ativo
+        (println (str "[WORKER_DEBUG] Verificando " total-active " templates ativos para WABA ID: " waba-id))
+        (doseq [template active-templates]
+          (let [tpl-id (get template "id" "N/A")
+                tpl-name (get template "elementName" "N/A")
+                tpl-cat (get template "category" "N/A")
+                has-old-cat (contains? template "oldCategory")
+                tpl-old-cat (get template "oldCategory" "N/A")]
+            (println (str "[WORKER_DEBUG] Template ID: " tpl-id
+                          ", Nome: \"" tpl-name
+                          "\", Categoria Atual: " tpl-cat
+                          ", Possui 'oldCategory'?: " has-old-cat
+                          ", Valor 'oldCategory': " tpl-old-cat))))
+
+        ;; Filtra templates ativos que possuem a chave "oldCategory" (indicando mudança)
+        (let [changed-category-templates (filter #(contains? % "oldCategory") active-templates)
+              count-changed (count changed-category-templates)]
+
+          (println (str "[WORKER] Detalhes para WABA ID " waba-id ":"))
+          (println (str "  Total de templates recebidos: " total-received "."))
         (when (not= total-received (count map-templates))
           (println (str "  AVISO: " (- total-received (count map-templates)) " itens não-mapa foram ignorados.")))
         (println (str "  Total de templates ativos (não FAILED e são mapas): " total-active "."))
