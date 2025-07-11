@@ -5,6 +5,7 @@
             :url "https://www.eclipse.org/legal/epl-2.0/"}
   
   :dependencies [[org.clojure/clojure "1.11.1"]
+                 [org.clojure/data.json "2.5.0"]
                  
                  ;; Cliente HTTP para consumir a API da Gupshup
                  [clj-http "3.12.3"]
