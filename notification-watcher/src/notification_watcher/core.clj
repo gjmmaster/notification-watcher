@@ -125,6 +125,13 @@
             :else
             (let [templates (get-in (:body response) [:templates])]
               (println (str "[WORKER] Templates recebidos da API Gupshup para WABA ID " waba-id ": " (count templates) " templates."))
+              ;; ---- START DEBUG LOG FOR TEMPLATE STRUCTURE ----
+              ;; Para depurar a estrutura exata do template, descomente as linhas abaixo.
+              ;; Isso irá imprimir o primeiro template recebido, se houver algum.
+              #_(when (and (seq templates) (first templates))
+                  (println "[WORKER_DEBUG_STRUCTURE] Estrutura do primeiro template recebido:")
+                  (pprint/pprint (first templates)))
+              ;; ---- END DEBUG LOG FOR TEMPLATE STRUCTURE ----
               (or templates []))))
 
         (catch Exception e
@@ -162,12 +169,12 @@
             count-changed (count changed-category-templates)]
 
         (doseq [template active-templates]
-          (let [tpl-id (get template "id" "N/A")
-                tpl-name (get template "elementName" "N/A")
-                tpl-cat (get template "category" "N/A")
-                has-old-cat (contains? template "oldCategory")
-                tpl-old-cat (get template "oldCategory" "N/A")]
-            (println (str "[WORKER_DEBUG] Template ID: " tpl-id ", Nome: \"" tpl-name "\", Categoria Atual: " tpl-cat ", Possui 'oldCategory'?: " has-old-cat ", Valor 'oldCategory': " tpl-old-cat))))
+          (let [tpl-id (get template "templateId" (get template "id" "(id missing)"))
+                tpl-name (get template "templateName" (get template "elementName" "(name missing)"))
+                tpl-cat (get template "templateCategory" (get template "category" "(category missing)"))
+                has-old-cat (or (contains? template "oldCategory") (contains? template "previousCategory"))
+                tpl-old-cat (or (get template "oldCategory") (get template "previousCategory") "(old/previous category not present)")]
+            (println (str "[WORKER_DEBUG] Template ID: " tpl-id ", Nome: \"" tpl-name "\", Categoria Atual: " tpl-cat ", Possui 'oldCategory/previousCategory'?: " has-old-cat ", Valor: " tpl-old-cat))))
 
         (println (str "[WORKER] Detalhes para WABA ID " waba-id ":"))
         (println (str "  Total de templates recebidos: " total-received "."))
