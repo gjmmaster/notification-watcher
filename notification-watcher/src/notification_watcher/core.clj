@@ -3,7 +3,7 @@
             [org.httpkit.server :as server]
             [clojure.pprint :as pprint]
             [clojure.string :as str]
-            [clojure.data.json :as json]) ; Added for JSON manipulation
+            [clojure.data.json :as json])
   (:gen-class))
 
 
@@ -23,10 +23,8 @@
 (def gupshup-token
   (System/getenv "GUPSHUP_TOKEN"))
 
-;; Atom para armazenar os templates mockados, chaveados por WABA ID
 (def mock-templates-store (atom {}))
 
-;; Atom para armazenar a lista de templates que tiveram mudança de categoria detectada
 (defonce changed-templates-atom (atom []))
 
 (defn- generate-mock-templates-for-waba [waba-id]
@@ -40,7 +38,7 @@
     (println "[MOCK_SETUP] GUPSHUP_MOCK_MODE está ativo.")
     (let [mock-waba-ids (if customer-manager-mock-waba-ids-str
                           (map str/trim (str/split customer-manager-mock-waba-ids-str #","))
-                          ["mock_waba_id_default1" "mock_waba_id_default2"])] ; Fallback se MOCK_CUSTOMER_MANAGER_WABA_IDS não estiver setado mas GUPSHUP_MOCK_MODE sim
+                          ["mock_waba_id_default1" "mock_waba_id_default2"])]
       (println (str "[MOCK_SETUP] Populando mock store para WABA IDs: " mock-waba-ids))
       (doseq [waba-id mock-waba-ids]
         (swap! mock-templates-store assoc waba-id (generate-mock-templates-for-waba waba-id)))
@@ -64,7 +62,7 @@
           (println (str "[WORKER] Buscando WABA IDs de: " full-url))
           (let [response (client/get full-url {:as :json :throw-exceptions false :conn-timeout 5000 :socket-timeout 5000})]
             (if (= (:status response) 200)
-              (let [ids (:body response)]
+              (let [ids (:waba_ids (:body response))] ; Ajustado para o contrato da API
                 (if (and (vector? ids) (every? string? ids))
                   (do
                     (println (str "[WORKER] WABA IDs recebidos: " ids))
@@ -96,11 +94,11 @@
     (let [url (str "https://api.gupshup.io/sm/api/v1/template/list/" waba-id)]
       (println (str "[WORKER] Tentando conexão com a API Gupshup. WABA ID: " waba-id ", URL: " url))
       (try
-        (let [response (client/get url {:headers {:apikey token}
-                                        :as :json
+        (let [response (client/get url {:headers          {:apikey token}
+                                        :as               :json
                                         :throw-exceptions false
-                                        :conn-timeout 60000
-                                        :socket-timeout 60000})]
+                                        :conn-timeout     60000
+                                        :socket-timeout   60000})]
           (println (str "[WORKER] Resposta recebida da API Gupshup para WABA ID " waba-id ". Status HTTP: " (:status response)))
 
           (cond
@@ -109,37 +107,37 @@
               (println (str "[WORKER] Erro crítico de HTTP ao buscar templates para WABA ID " waba-id ": " (:error response)))
               (when-let [cause (:cause (:error response))]
                 (println (str "Causa: " cause)))
-              nil) ; Retorna nil em caso de erro crítico de HTTP
+              nil)
 
             (not= (:status response) 200)
             (do
               (println (str "[WORKER] Erro ao buscar templates da Gupshup para WABA ID " waba-id ". Status HTTP: " (:status response) ". Corpo:"))
               (pprint/pprint (:body response))
-              nil) ; Retorna nil se o status não for 200
+              nil)
 
             (not (map? (:body response)))
             (do
               (println (str "[WORKER] Resposta da API Gupshup (status 200 OK) para WABA ID " waba-id " mas corpo não é um mapa JSON. Corpo:"))
               (pprint/pprint (:body response))
               (println (str "\n!!!! [WORKER] ALERTA: Corpo da API Gupshup para WABA ID " waba-id " não é um mapa JSON válido. Retornando nil. !!!!"))
-              nil) ; Retorna nil se o corpo não for um mapa
+              nil)
 
             :else
             (let [templates (get-in (:body response) [:templates])]
               (println (str "[WORKER] Templates recebidos da API Gupshup para WABA ID " waba-id ": " (count templates) " templates."))
-              (or templates [])))) ; Garante [] se :templates for nil ou ausente na resposta bem-sucedida
+              (or templates []))))
 
         (catch Exception e
           (println (str "\n!!!! [WORKER] Exceção CRÍTICA ao conectar com a API Gupshup para WABA ID " waba-id " ou processar resposta !!!!"))
           (println (str "Tipo da exceção: " (type e)))
           (println (str "Mensagem: " (.getMessage e)))
           (.printStackTrace e)
-          nil))))) ; Retorna nil em caso de exceção durante a chamada HTTP
+          nil)))))
 
 (defn log-category-change
   "Loga a mudança de categoria de um template."
   [template waba-id]
-  (let [template-id (get template "id") ; Gupshup API usa strings para chaves
+  (let [template-id (get template "id")
         elementName (get template "elementName")
         oldCategory (get template "oldCategory")
         newCategory (get template "category")]
@@ -151,38 +149,28 @@
     (println (str "  Nova Categoria: " newCategory))))
 
 (defn process-templates-for-waba
-  "Processa templates para um WABA ID, identifica mudanças e retorna os alterados,
-   associando o waba-id a cada template alterado."
+  "Processa templates para um WABA ID, identifica mudanças e retorna os alterados."
   [waba-id token]
   (println (str "[WORKER] Iniciando processamento de templates para WABA ID: " waba-id))
-  (if-let [all-templates (fetch-templates-for-waba waba-id token)] ; all-templates pode ser nil se fetch falhar
-    (if (seq all-templates) ; Procede somente se houver templates
+  (if-let [all-templates (fetch-templates-for-waba waba-id token)]
+    (if (seq all-templates)
       (let [total-received (count all-templates)
-            map-templates (filter map? all-templates) ; Garante que são mapas
-            ;; Filtra para incluir apenas templates que NÃO estão com status "FAILED"
+            map-templates (filter map? all-templates)
             active-templates (filter #(not= (get % "status") "FAILED") map-templates)
-            total-active (count active-templates)]
+            total-active (count active-templates)
+            changed-category-templates (filter #(contains? % "oldCategory") active-templates)
+            count-changed (count changed-category-templates)]
 
-        ;; DEBUG: Log detalhado de cada template ativo
-        (println (str "[WORKER_DEBUG] Verificando " total-active " templates ativos para WABA ID: " waba-id))
         (doseq [template active-templates]
           (let [tpl-id (get template "id" "N/A")
                 tpl-name (get template "elementName" "N/A")
                 tpl-cat (get template "category" "N/A")
                 has-old-cat (contains? template "oldCategory")
                 tpl-old-cat (get template "oldCategory" "N/A")]
-            (println (str "[WORKER_DEBUG] Template ID: " tpl-id
-                          ", Nome: \"" tpl-name
-                          "\", Categoria Atual: " tpl-cat
-                          ", Possui 'oldCategory'?: " has-old-cat
-                          ", Valor 'oldCategory': " tpl-old-cat))))
+            (println (str "[WORKER_DEBUG] Template ID: " tpl-id ", Nome: \"" tpl-name "\", Categoria Atual: " tpl-cat ", Possui 'oldCategory'?: " has-old-cat ", Valor 'oldCategory': " tpl-old-cat))))
 
-        ;; Filtra templates ativos que possuem a chave "oldCategory" (indicando mudança)
-        (let [changed-category-templates (filter #(contains? % "oldCategory") active-templates)
-              count-changed (count changed-category-templates)]
-
-          (println (str "[WORKER] Detalhes para WABA ID " waba-id ":"))
-          (println (str "  Total de templates recebidos: " total-received "."))
+        (println (str "[WORKER] Detalhes para WABA ID " waba-id ":"))
+        (println (str "  Total de templates recebidos: " total-received "."))
         (when (not= total-received (count map-templates))
           (println (str "  AVISO: " (- total-received (count map-templates)) " itens não-mapa foram ignorados.")))
         (println (str "  Total de templates ativos (não FAILED e são mapas): " total-active "."))
@@ -192,21 +180,19 @@
             (println (str "  Dentre os ativos, " count-changed " templates com mudança de categoria encontrados."))
             (doseq [template changed-category-templates]
               (log-category-change template waba-id))
-            ;; Adiciona/atualiza o wabaId em cada template alterado para garantir consistência
             (map #(assoc % "wabaId" waba-id) changed-category-templates))
           (do
             (println (str "  Nenhum template ativo com mudança de categoria encontrado para o WABA ID " waba-id "."))
-            []))) ; Retorna lista vazia se não houver mudanças
+            [])))
       (do
         (println (str "[WORKER] Nenhum template recebido ou lista vazia para WABA ID " waba-id "."))
-        [])) ; Retorna lista vazia se não houve templates
+        []))
     (do
       (println (str "[WORKER] Falha ao obter templates para WABA ID " waba-id ". Não foi possível processar."))
-      []))) ; Retorna lista vazia em caso de falha total no fetch
+      [])))
 
 (defn check-all-waba-ids-for-changes!
-  "Busca todos os WABA IDs e verifica mudanças de templates para cada um,
-   atualizando o atom `changed-templates-atom`."
+  "Busca todos os WABA IDs e verifica mudanças de templates para cada um, atualizando o atom."
   []
   (println "[WORKER] Iniciando ciclo de verificação de todos os WABA IDs...")
   (if (str/blank? gupshup-token)
@@ -218,14 +204,13 @@
           (reset! changed-templates-atom []))
         (let [all-changed-templates (->> waba-ids
                                          (mapcat #(process-templates-for-waba % gupshup-token))
-                                         (filter identity) ; Remove nils que podem ter vindo de process-templates-for-waba
-                                         vec)] ; Converte para vetor
+                                         (filter identity)
+                                         vec)]
           (println (str "[WORKER] Total de templates com mudança de categoria em todos os WABA IDs: " (count all-changed-templates)))
           (reset! changed-templates-atom all-changed-templates)
           (if (seq @changed-templates-atom)
             (println (str "[WORKER] Lista de templates alterados atualizada. " (count @changed-templates-atom) " templates armazenados."))
             (println "[WORKER] Lista de templates alterados está vazia após a verificação.")))))))
-
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;  3. LÓGICA DO SERVIDOR HTTP E PONTO DE ENTRADA
@@ -234,24 +219,24 @@
 (defn- start-watcher-loop!
   "Inicia o loop em background que periodicamente verifica por mudanças."
   []
-  (initialize-mock-gupshup-store!) ; Garante que o mock store seja inicializado se o modo mock estiver ativo.
+  (initialize-mock-gupshup-store!)
   (if (str/blank? gupshup-token)
     (println "[WORKER_SETUP] ERRO CRÍTICO: GUPSHUP_TOKEN não está definido. O watcher não pode iniciar.")
     (future
       (println "[WORKER] Watcher em background iniciado. Primeiro ciclo em 30 segundos...")
-      (Thread/sleep 30000) ; Atraso inicial
+      (Thread/sleep 30000)
       (loop []
         (try
-          (check-all-waba-ids-for-changes!) ; Chama a função que atualiza o atom
+          (check-all-waba-ids-for-changes!)
           (println "[WORKER] Verificação de todos os WABA IDs concluída. Próximo ciclo em 10 minutos.")
-          (catch Throwable t ; Captura qualquer Throwable para evitar que o loop morra
+          (catch Throwable t
             (println "\n!!!! [WORKER] Exceção INESPERADA no loop principal do watcher !!!!")
             (println (str "  Tipo da exceção: " (type t)))
             (println (str "  Mensagem: " (.getMessage t)))
             (.printStackTrace t)
             (println "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n")
             (println "[WORKER] Erro no ciclo. Tentando novamente em 10 minutos.")))
-        (Thread/sleep 600000) ; Intervalo de 10 minutos (600,000 ms)
+        (Thread/sleep 600000)
         (recur)))))
 
 (defn app-handler
@@ -259,17 +244,16 @@
   [request]
   (case (:uri request)
     "/"
-    {:status 200
+    {:status  200
      :headers {"Content-Type" "text/plain; charset=utf-8"}
      :body    "Serviço Notification Watcher está no ar."}
 
     "/changed-templates"
-    {:status 200
+    {:status  200
      :headers {"Content-Type" "application/json; charset=utf-8"}
-     :body    (json/write-str @changed-templates-atom)} ; Serve o conteúdo do atom
+     :body    (json/write-str @changed-templates-atom)}
 
-    ;; else (404 Not Found)
-    {:status 404
+    {:status  404
      :headers {"Content-Type" "text/plain; charset=utf-8"}
      :body    "Recurso não encontrado."}))
 
@@ -285,7 +269,7 @@
     (println (str "  GUPSHUP_TOKEN: " (if (str/blank? gupshup-token) "NÃO DEFINIDO (CRÍTICO!)" "Definido (oculto)")))
     (println (str "  PORT: " port))
 
-    (start-watcher-loop!) ; Inicia o processo em background
+    (start-watcher-loop!)
 
     (server/run-server #'app-handler {:port port})
     (println (str "[SERVER] Servidor HTTP iniciado na porta " port "."))
