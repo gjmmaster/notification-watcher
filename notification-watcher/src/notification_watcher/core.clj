@@ -96,11 +96,11 @@
     (let [url (str "https://api.gupshup.io/sm/api/v1/template/list/" waba-id)]
       (println (str "[WORKER] Tentando conexão com a API Gupshup. WABA ID: " waba-id ", URL: " url))
       (try
-        (let [response (client/get url {:headers          {:apikey token}
-                                        :as               :json
+        (let [response (client/get url {:headers {:apikey token}
+                                        :as :json
                                         :throw-exceptions false
-                                        :conn-timeout     60000
-                                        :socket-timeout   60000})]
+                                        :conn-timeout 60000
+                                        :socket-timeout 60000})]
           (println (str "[WORKER] Resposta recebida da API Gupshup para WABA ID " waba-id ". Status HTTP: " (:status response)))
 
           (cond
@@ -259,17 +259,17 @@
   [request]
   (case (:uri request)
     "/"
-    {:status  200
+    {:status 200
      :headers {"Content-Type" "text/plain; charset=utf-8"}
      :body    "Serviço Notification Watcher está no ar."}
 
     "/changed-templates"
-    {:status  200
+    {:status 200
      :headers {"Content-Type" "application/json; charset=utf-8"}
      :body    (json/write-str @changed-templates-atom)} ; Serve o conteúdo do atom
 
     ;; else (404 Not Found)
-    {:status  404
+    {:status 404
      :headers {"Content-Type" "text/plain; charset=utf-8"}
      :body    "Recurso não encontrado."}))
 
