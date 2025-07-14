@@ -1,0 +1,202 @@
+Com certeza. Preparei um relatório técnico completo para o **Caminho do Protótipo Integrado**.
+
+Este documento foi modelado a partir do `SNCT_Relatorio_Tecnico_Onboarding_v3.md` para manter a consistência, mas foi totalmente adaptado para descrever a arquitetura e os objetivos específicos do protótipo que discutimos.
+
+-----
+
+# Relatório Técnico: Protótipo Integrado do Sistema de Notificação (SNCT)
+
+**ID do Documento:** ARQ-SNCT-PROT-20250714-v1.0
+**Data:** 14 de Julho de 2025
+**Versão:** 1.0 (Foco no `Caminho do Protótipo Integrado`)
+**Autor:** Gemini, Arquiteto de Sistemas
+
+**Propósito deste Documento:** Este documento descreve a arquitetura e o plano de implementação para o **Protótipo Integrado** do Sistema de Notificação de Mudança de Categoria de Templates (SNCT). O objetivo é validar o fluxo de dados de ponta a ponta, desde a detecção da mudança até a emissão da notificação, utilizando uma arquitetura simplificada de dois serviços com dependências externas mockadas. Este documento serve como guia técnico para o desenvolvimento desta fase.
+
+-----
+
+## 1\. Resumo Executivo
+
+O Protótipo Integrado do SNCT representa o primeiro passo prático para a validação da **Arquitetura Alvo** do sistema. O objetivo é desenvolver e integrar dois microsserviços principais para testar o fluxo de notificação em um ambiente controlado, sem a complexidade de bancos de dados ou serviços de gerenciamento de clientes.
+
+A arquitetura do protótipo é composta por dois serviços:
+
+  * **`notification-watcher`**: O serviço já existente e funcional, responsável por monitorar a API da Gupshup e expor as mudanças detectadas através de um endpoint.
+  * **`sms-notifier-prototype`**: Um novo serviço a ser desenvolvido, que consumirá as informações do `notification-watcher`, buscará dados de contato de clientes de uma fonte mockada (variáveis de ambiente) e simulará o envio de notificações (via console) de forma idempotente (usando um cache em memória).
+
+Esta abordagem permitirá validar a comunicação inter-serviços e a lógica de negócio principal de forma rápida e eficiente.
+
+-----
+
+## 2\. Introdução e Escopo do Problema
+
+O problema central permanece o mesmo da Arquitetura Alvo: clientes que utilizam a API do WhatsApp (via Gupshup) não são notificados proativamente quando a Meta reclassifica seus templates de mensagens.
+
+O escopo deste protótipo é criar uma solução funcional mínima para:
+
+1.  Detectar automaticamente uma mudança de categoria usando o `notification-watcher`.
+2.  Transmitir essa informação para um segundo serviço, o `sms-notifier-prototype`.
+3.  Simular o envio de uma notificação para o contato correto, com base em dados estáticos.
+4.  Garantir que a mesma notificação não seja processada repetidamente durante a execução.
+
+-----
+
+## 3\. Arquitetura Detalhada do Protótipo
+
+O sistema é desenhado com dois microsserviços que se comunicam via HTTP, com dependências externas substituídas por mocks.
+
+### 3.1. Componentes Principais
+
+**3.1.1. `notification-watcher` (Serviço Existente)**
+
+  * **Responsabilidades:** Conforme documentado em `Notification_Watcher_Status.md`, este serviço irá:
+      * Monitorar a API da Gupshup (em modo real ou mock) para um conjunto de WABA IDs.
+      * Detectar mudanças de categoria pela presença do campo `:oldCategory`.
+      * Manter uma lista das mudanças detectadas em um `atom` interno.
+      * Expor um endpoint `GET /changed-templates` para que o `sms-notifier-prototype` possa consumir esses dados.
+  * **Estado:** Sem estado persistente (stateless), utiliza um `atom` em memória para o cache de mudanças.
+
+**3.1.2. `sms-notifier-prototype` (Novo Serviço)**
+
+  * **Responsabilidades:**
+      * Periodicamente (ex: a cada 1 minuto), fazer uma requisição `GET` para o endpoint `/changed-templates` do `notification-watcher`.
+      * Para cada template alterado recebido:
+          * Extrair o `wabaId`.
+          * Consultar uma fonte de dados mockada (variável de ambiente) para obter o número de telefone associado ao `wabaId`.
+          * Verificar em um cache em memória (um `atom`) se uma notificação para essa mudança específica já foi processada (garantia de idempotência).
+          * Se a notificação for nova e um contato for encontrado:
+              * Formatar uma mensagem de alerta detalhada.
+              * **Simular o envio** imprimindo a mensagem formatada no console (`println`).
+              * Registrar que a notificação foi processada no cache em memória.
+  * **Estado:** Sem estado persistente, utiliza um `atom` para o cache de idempotência.
+
+### 3.2. Diagrama da Arquitetura do Protótipo
+
+```
++--------------------------------+       +---------------------------------+
+|      notification-watcher      |------>|       sms-notifier-prototype    |
+|  (Monitora API Gupshup)        |       |    (Consome, Formata, "Envia")  |
+|                                |       |                                 |
+|  - Estado: Atom em memória     |       |    - Estado: Atom em memória    |
+|    (changed-templates)         |       |      (sent-notifications-cache) |
+|                                |       |                                 |
+|  - Expõe:                      |       |    - Dependências Mockadas:     |
+|    GET /changed-templates      |       |      - Contatos (Var. Ambiente) |
++--------------------------------+       |      - Envio SMS (Saída Console)|
+         ^                             +---------------------------------+
+         |
+         |
++--------------------------------+
+|      API Provedor              |
+|      (ex: Gupshup)             |
++--------------------------------+
+```
+
+### 3.3. Fluxo de Dados do Protótipo
+
+1.  O **`notification-watcher`** é iniciado e começa seu ciclo de monitoramento da API da Gupshup. Ao encontrar uma mudança de categoria, ele atualiza seu `atom` interno com os detalhes do template alterado.
+2.  O **`sms-notifier-prototype`** é iniciado e começa seu próprio ciclo de polling.
+3.  Periodicamente, o `sms-notifier-prototype` faz uma chamada `GET` para `http://<watcher-url>/changed-templates`.
+4.  Ele recebe uma lista JSON de templates alterados (ou uma lista vazia).
+5.  Para cada template na lista:
+    a.  Extrai o `wabaId`.
+    b.  Busca o telefone de contato em sua configuração de ambiente `MOCK_CUSTOMER_DATA`.
+    c.  Cria uma chave única para a notificação (ex: `template-id_nova-categoria`).
+    d.  Verifica se a chave já existe em seu `atom` de idempotência.
+    e.  Se a chave não existir e um telefone for encontrado, ele formata a mensagem e a imprime no console. Em seguida, adiciona a chave ao seu `atom` para não processá-la novamente.
+
+-----
+
+## 4\. Pilha Tecnológica (Stack)
+
+| Serviço                   | Linguagem/Framework | Banco de Dados | Bibliotecas Chave (Exemplos)                                    |
+| ------------------------- | ------------------- | -------------- | --------------------------------------------------------------- |
+| `notification-watcher`    | Clojure 1.11+       | **N/A** | `clj-http`, `http-kit`, `compojure`, `cheshire`                 |
+| `sms-notifier-prototype`  | Clojure 1.11+       | **N/A** | `clj-http`, `cheshire`, `environ` (para variáveis de ambiente) |
+| **Infraestrutura Comum** | Leiningen, Java (JDK 11+), Docker (Opcional para deploy) |                |                                                                 |
+
+-----
+
+## 5\. Configuração do Ambiente de Desenvolvimento
+
+**Pré-requisitos:** Java (JDK 11+), Leiningen.
+
+**Passo 1: Configurar Variáveis de Ambiente**
+Ambos os serviços serão configurados via variáveis de ambiente. Recomenda-se o uso de um arquivo `.env` com a biblioteca `environ`.
+
+  * **Para `notification-watcher`:**
+
+    ```bash
+    # Token real ou mock da Gupshup
+    GUPSHUP_TOKEN="seu_token"
+    # Ativa o modo que gera dados de teste internamente
+    GUPSHUP_MOCK_MODE="true"
+    # IDs de conta para os quais o modo mock deve gerar dados
+    MOCK_CUSTOMER_MANAGER_WABA_IDS="waba_id_1,waba_id_2"
+    # Porta para o watcher rodar
+    PORT="8080"
+    ```
+
+  * **Para `sms-notifier-prototype`:**
+
+    ```bash
+    # URL para encontrar o serviço notification-watcher
+    WATCHER_URL="http://localhost:8080"
+    # String JSON contendo os dados de contato mockados
+    MOCK_CUSTOMER_DATA='{"waba_id_1": "+5511999998888", "waba_id_2": "+5521888887777"}'
+    ```
+
+**Passo 2: Executar os Serviços**
+
+1.  Abra dois terminais separados.
+2.  **Terminal 1 (notification-watcher):**
+      * Navegue até o diretório do `notification-watcher`.
+      * Exporte as variáveis de ambiente ou certifique-se que o `.env` está configurado.
+      * Execute `lein run`. O servidor iniciará na porta `8080`.
+3.  **Terminal 2 (sms-notifier-prototype):**
+      * Navegue até o diretório do `sms-notifier-prototype`.
+      * Exporte as variáveis de ambiente ou configure o `.env`.
+      * Execute `lein run`. O serviço começará a consultar o `notification-watcher`.
+
+Você deverá ver logs no terminal do `notification-watcher` sobre as mudanças detectadas e, em seguida, logs no terminal do `sms-notifier-prototype` simulando o envio de SMS.
+
+-----
+
+## 6\. Detalhes da API (Contrato de Interação)
+
+A única interação de API neste protótipo é a consulta do `sms-notifier-prototype` ao `notification-watcher`.
+
+  * **Endpoint:** `GET /changed-templates`
+  * **Fornecido por:** `notification-watcher`
+  * **Consumido por:** `sms-notifier-prototype`
+  * **Resposta (200 OK):** Um array JSON de objetos, onde cada objeto representa um template que teve a categoria alterada.
+    ```json
+    [
+      {
+        "id": "template_abc123",
+        "elementName": "boas_vindas_premium",
+        "wabaId": "waba_id_1",
+        "category": "MARKETING",
+        "oldCategory": "UTILITY",
+        "status": "APPROVED",
+        "language": "pt_BR"
+      }
+    ]
+    ```
+
+-----
+
+## 7\. Roteiro de Desenvolvimento do Protótipo
+
+  * `[ ]` **(sms-notifier):** Criar a estrutura do novo projeto Leiningen (`sms-notifier-prototype`).
+  * `[ ]` **(sms-notifier):** Adicionar as dependências (`clj-http`, `cheshire`, `environ`).
+  * `[ ]` **(sms-notifier):** Implementar a lógica para ler e parsear a variável de ambiente `MOCK_CUSTOMER_DATA`.
+  * `[ ]` **(sms-notifier):** Criar a função principal do worker (loop `future`) que consulta periodicamente a `WATCHER_URL`.
+  * `[ ]` **(sms-notifier):** Implementar o tratamento da resposta JSON do `notification-watcher`.
+  * `[ ]` **(sms-notifier):** Implementar o cache de idempotência em memória (`atom`).
+  * `[ ]` **(sms-notifier):** Implementar a lógica de formatação e impressão da mensagem de notificação no console.
+  * `[ ]` **(documentação):** Criar um `README.md` para o `sms-notifier-prototype` explicando como configurá-lo e executá-lo junto com o `notification-watcher`.
+
+-----
+
+**Fim do Documento**
