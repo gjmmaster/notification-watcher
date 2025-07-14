@@ -1,0 +1,120 @@
+Com certeza. Aqui está uma proposta de um novo documento em Markdown, projetado para complementar o relatório técnico existente. Este novo relatório foca especificamente na estratégia de orquestração dos microsserviços para operar dentro das limitações de um plano gratuito, utilizando o GitHub Actions.
+
+-----
+
+# Apêndice A: Orquestração de Microsserviços em Ambientes com Recursos Limitados
+
+**ID do Documento:** ARQ-SNCT-20250714-v3.1
+**Data:** 14 de Julho de 2025
+**Versão:** 3.1 (Estratégia de Operação Part-Time)
+**Autor:** Gemini, Arquiteto de Sistemas
+
+## 1\. Introdução
+
+Este documento serve como um apêndice ao Relatório Técnico principal (ARQ-SNCT-20250710-v3.0) e detalha uma estratégia de implantação alternativa para o Sistema de Notificação de Mudança de Categoria de Templates (SNCT). A estratégia visa permitir a operação da arquitetura de três microsserviços em plataformas com planos gratuitos, como o Render.com, que impõem limites de uso, notadamente um limite mensal de horas de CPU.
+
+A abordagem proposta é a **Operação de Microsserviços em Horário Reduzido** (ou "Part-Time"), onde os serviços são mantidos ativos apenas durante uma janela de tempo pré-definida, utilizando o GitHub Actions como orquestrador e mecanismo de "keep-alive".
+
+## 2\. Análise do Desafio: Limites do Plano Gratuito
+
+A arquitetura de três microsserviços (`customer-manager`, `notification-watcher`, `sms-notifier`), se operada continuamente (24/7), consumiria aproximadamente 744 horas de CPU por serviço, totalizando mais de 2.200 horas. Este valor excede em muito o limite típico de 750 horas mensais oferecido pelos planos gratuitos, o que torna a operação contínua inviável sem custos.
+
+A estratégia de operação em horário reduzido visa contornar essa limitação, garantindo que o consumo de CPU permaneça dentro do limite gratuito.
+
+## 3\. Estratégia de Orquestração Escalonada
+
+Para maximizar a eficiência e a confiabilidade durante a janela de operação, os serviços não devem ser ativados todos ao mesmo tempo. Uma inicialização escalonada (staggered startup) é proposta para mitigar o risco de falhas em cascata devido a "cold starts".
+
+A sequência de ativação e o fluxo de comunicação são os seguintes:
+
+1.  **Ativação do `customer-manager-service`:**
+
+      * **Quando:** No início da janela de operação (ex: 12:00, horário local).
+      * **Por quê:** Este serviço é a dependência fundamental para os outros dois. Ele precisa estar "quente" e pronto para responder às solicitações de lista de clientes e informações de contato.
+
+2.  **Ativação do `notification-watcher`:**
+
+      * **Quando:** Poucos minutos após o `customer-manager` (ex: 12:02).
+      * **Fluxo:** Ao "acordar", ele imediatamente consulta o `customer-manager-service` (já ativo) para obter a lista de WABA IDs. Em seguida, inicia o ciclo de consultas à API da Gupshup.
+
+3.  **Ativação do `sms-notifier`:**
+
+      * **Quando:** Poucos minutos após o `notification-watcher` (ex: 12:05).
+      * **Fluxo:** Ao iniciar, ele consulta o `notification-watcher` (que já teve tempo de popular os dados de templates alterados) e o `customer-manager` (que permanece ativo) para obter as informações necessárias e enviar as notificações por SMS.
+
+Este fluxo orquestrado garante que, quando um serviço faz uma requisição, o serviço do qual ele depende já está online e responsivo.
+
+## 4\. Implementação com GitHub Actions
+
+O GitHub Actions é a ferramenta escolhida para implementar essa orquestração, substituindo serviços de terceiros como o UptimeRobot. A implementação consiste em três workflows separados, um para cada serviço, agendados com pequenos desfasamentos.
+
+**Regra de Ouro:** Para evitar que os serviços do Render hibernem (spin down) após 15 minutos de inatividade, os pings devem ocorrer em um intervalo menor, como a cada 10 minutos.
+
+**Nota sobre Fuso Horário:** Os agendamentos `cron` do GitHub Actions usam o fuso horário UTC. É preciso converter o horário de operação local para UTC ao configurar os workflows. (Ex: 12:00-16:00 BRT `UTC-3` equivale a 15:00-19:00 UTC).
+
+### 4.1. Workflow para `customer-manager-service`
+
+  * **Arquivo:** `.github/workflows/keep-alive-customer-manager.yml`
+  * **Agendamento:** `*/10 15-19 * * 1-5` (A cada 10 min, entre 15h e 19h UTC, de Segunda a Sexta).
+
+<!-- end list -->
+
+```yaml
+name: Keep Customer Manager Alive
+on:
+  schedule:
+    - cron: '*/10 15-19 * * 1-5'
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Customer Manager Service
+        run: curl -s "https://url-do-seu-customer-manager.onrender.com" > /dev/null
+```
+
+### 4.2. Workflow para `notification-watcher`
+
+  * **Arquivo:** `.github/workflows/keep-alive-notification-watcher.yml`
+  * **Agendamento:** `2-59/10 15-19 * * 1-5` (Aos minutos 2, 12, 22, ..., entre 15h e 19h UTC).
+
+<!-- end list -->
+
+```yaml
+name: Keep Notification Watcher Alive
+on:
+  schedule:
+    - cron: '2-59/10 15-19 * * 1-5'
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Notification Watcher Service
+        run: curl -s "https://url-do-seu-notification-watcher.onrender.com" > /dev/null
+```
+
+### 4.3. Workflow para `sms-notifier`
+
+  * **Arquivo:** `.github/workflows/keep-alive-sms-notifier.yml`
+  * **Agendamento:** `5-59/10 15-19 * * 1-5` (Aos minutos 5, 15, 25, ..., entre 15h e 19h UTC).
+
+<!-- end list -->
+
+```yaml
+name: Keep SMS Notifier Alive
+on:
+  schedule:
+    - cron: '5-59/10 15-19 * * 1-5'
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping SMS Notifier Service
+        run: curl -s "https://url-do-seu-sms-notifier.onrender.com" > /dev/null
+```
+
+## 5\. Análise de Riscos e Trade-offs
+
+A adoção desta estratégia implica em uma decisão de negócio fundamental:
+
+  * **Vantagem Principal:** Custo zero (ou muito baixo), pois viabiliza o uso da arquitetura de microsserviços no plano gratuito. Mantém o código desacoplado e pronto para escalar.
+  * **Risco Crítico:** **Atraso na notificação.** O sistema não é mais um monitor contínuo. Uma mudança de template que ocorra fora da janela de operação (ex: noites e fins de semana) só será detectada e notificada no próximo período de atividade. Este atraso pode ter implicações funcionais e financeiras para o cliente final e deve ser considerado o principal trade-off desta abordagem.
