@@ -1,0 +1,140 @@
+Claro. Com base em nossa discussão para robustecer o sistema, preparei um relatório técnico que descreve a arquitetura final do serviço `notification-watcher`. Este documento pode servir como um guia claro para a equipe de desenvolvimento.
+
+-----
+
+### **Relatório Técnico e Guia de Evolução: Versão Final do Serviço `notification-watcher`**
+
+**ID do Documento:** ARQ-NW-FINAL-20250714-v1.0
+**Data:** 14 de Julho de 2025
+**Versão:** 1.0 (Arquitetura Persistente)
+**Autor:** Gemini, Arquiteto de Sistemas
+
+**Propósito deste Documento:**
+Este documento descreve a arquitetura final e o estado alvo para o serviço `notification-watcher`. O objetivo é evoluir o serviço de um componente com estado em memória (`atom`) para um microsserviço com estado persistente, utilizando seu próprio banco de dados. Esta mudança visa garantir resiliência, rastreabilidade e uma dupla camada de proteção contra idempotência no Sistema de Notificação de Mudança de Categoria de Templates (SNCT).
+
+-----
+
+### **1. Visão Geral da Evolução**
+
+[cite\_start]Na arquitetura anterior, o `notification-watcher` era um serviço *stateless* (sem estado), que mantinha as mudanças detectadas em um `atom` na memória[cite: 5, 8]. Essa abordagem, embora simples, apresentava um risco crítico: a perda de estado sempre que o serviço reiniciava ou hibernava ("spin down"), o que poderia levar a falhas na entrega de notificações.
+
+A arquitetura final transforma o **`notification-watcher` em um serviço com estado persistente (*stateful*)**, com as seguintes responsabilidades aprimoradas:
+
+1.  **Detectar Mudanças**: Continuará monitorando a API da Gupshup para identificar alterações de categoria nos templates.
+2.  **Persistir Descobertas**: Em vez de usar um `atom`, o serviço irá **salvar cada mudança de categoria detectada como um registro em seu próprio banco de dados**.
+3.  **Garantir Idempotência (Camada 1)**: O banco de dados do `watcher` impedirá a inserção duplicada da mesma mudança, formando a primeira barreira de proteção.
+4.  **Expor Mudanças Pendentes**: Sua API (`/changed-templates`) servirá uma lista de mudanças que foram detectadas mas ainda não foram processadas pelo `sms-notifier`.
+
+-----
+
+### **2. Arquitetura Detalhada do Serviço Final**
+
+#### **2.1. Banco de Dados do `notification-watcher`**
+
+O serviço passará a gerenciar sua própria instância de banco de dados.
+
+  * **Propósito**: Funcionar como uma "caixa de entrada" ou um log persistente de todas as mudanças de categoria já identificadas, desacoplando o momento da detecção do momento do processamento.
+  * **Tecnologia Sugerida**: PostgreSQL ou CockroachDB (para manter a consistência com o restante do ecossistema).
+  * **Tabela Principal**: `detected_changes`
+
+**Definição da Tabela `detected_changes`:**
+
+```sql
+CREATE TABLE detected_changes (
+    -- Chave primária para identificação única do registro da mudança.
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    -- Detalhes da mudança detectada.
+    template_id VARCHAR(255) NOT NULL,
+    waba_id VARCHAR(255) NOT NULL,
+    old_category VARCHAR(100) NOT NULL,
+    new_category VARCHAR(100) NOT NULL,
+
+    -- Controle de fluxo do processamento.
+    status VARCHAR(50) NOT NULL DEFAULT 'DETECTED', -- Ex: 'DETECTED', 'PROCESSING', 'PROCESSED'
+
+    -- Timestamps para auditoria.
+    detected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP WITH TIME ZONE,
+
+    -- Restrição para a primeira camada de idempotência.
+    -- Impede que a mesma combinação de template+categoria+waba seja inserida mais de uma vez.
+    CONSTRAINT uq_detected_change UNIQUE (template_id, new_category, waba_id)
+);
+```
+
+  * **Índice Recomendado**: Um índice na coluna `status` é recomendado para otimizar as consultas do `sms-notifier` em busca de mudanças pendentes.
+
+-----
+
+### **3. Fluxo de Dados Modificado (Ponta a Ponta)**
+
+Com a introdução do novo banco de dados, o fluxo de trabalho será mais robusto:
+
+1.  **Detecção (Watcher)**: O `notification-watcher` consulta a API da Gupshup. Ao encontrar um template com o campo `oldCategory`, ele extrai todos os detalhes da mudança.
+
+2.  **Persistência e Idempotência (Camada 1 - Watcher)**:
+
+      * Para cada mudança detectada, o `watcher` tenta executar um comando `INSERT` na sua tabela `detected_changes`.
+      * Se a mudança já foi registrada anteriormente, a restrição `UNIQUE (uq_detected_change)` do banco de dados irá falhar a inserção silenciosamente. **Isso garante que uma mesma alteração de categoria não entre na fila de processamento mais de uma vez.**
+
+3.  **Disponibilização para Processamento (API do Watcher)**:
+
+      * O `sms-notifier` periodicamente chama o endpoint `GET /changed-templates` do `notification-watcher`.
+      * Este endpoint agora executa uma consulta no banco de dados, em vez de ler um `atom`: `SELECT * FROM detected_changes WHERE status = 'DETECTED';`.
+      * (Opcional) Para evitar que múltiplos `sms-notifiers` peguem o mesmo lote, a consulta pode ser aprimorada para marcar os itens como `'PROCESSING'` atomicamente.
+
+4.  **Processamento e Idempotência (Camada 2 - Notifier)**:
+
+      * O `sms-notifier` recebe a lista de mudanças pendentes.
+      * Para cada mudança, ele executa sua lógica original:
+        a. Consulta o `customer-manager-service` para obter o telefone de contato.
+        b. **Tenta inserir um registro em sua própria tabela `sent_notifications`**. A restrição única de seu banco de dados atua como a **segunda e final camada de idempotência**, garantindo que o SMS nunca seja enviado duas vezes.
+        c. Se a inserção for bem-sucedida, ele envia o SMS.
+
+5.  **Fechamento do Ciclo (Opcional, mas recomendado)**:
+
+      * Após o `sms-notifier` processar um lote, ele poderia fazer uma chamada a um novo endpoint no `watcher` (ex: `POST /mark-processed`) para atualizar o `status` dos registros de `'DETECTED'` para `'PROCESSED'`, mantendo a tabela `detected_changes` limpa e organizada.
+
+-----
+
+### **4. Contrato da API do `notification-watcher` (Versão Final)**
+
+  * **`GET /`**
+
+      * **Função**: Inalterada. [cite\_start]Verifica se o serviço está operacional[cite: 6].
+      * **Resposta**: `Serviço Notification Watcher está no ar.`
+
+  * **`GET /changed-templates`**
+
+      * **Função**: **Modificada**. Retorna um array JSON de mudanças de categoria que estão pendentes de processamento.
+      * **Lógica do Backend**: Executa `SELECT id, template_id, waba_id, old_category, new_category, detected_at FROM detected_changes WHERE status = 'DETECTED' ORDER BY detected_at ASC;`.
+      * **Resposta Exemplo (200 OK)**:
+        ```json
+        [
+          {
+            "id": "a1b2c3d4-e5f6-...",
+            "template_id": "tpl_pedido_conf_xyz",
+            "waba_id": "WABA_FLORES_123",
+            "old_category": "MARKETING",
+            "new_category": "UTILITY",
+            "detected_at": "2025-07-14T18:30:00Z"
+          }
+        ]
+        ```
+
+-----
+
+### **5. Próximos Passos de Desenvolvimento**
+
+Para alcançar esta versão final, os seguintes passos devem ser seguidos:
+
+1.  **Infraestrutura**: Provisionar um banco de dados (PostgreSQL/CockroachDB) para o `notification-watcher`.
+2.  **Desenvolvimento (`notification-watcher`)**:
+      * Adicionar as dependências de banco de dados (`next.jdbc`, driver do postgresql) ao `project.clj`.
+      * Remover o `changed-templates-atom`.
+      * Implementar a lógica de conexão com o banco de dados e a função para inserir mudanças na tabela `detected_changes`, tratando a falha de inserção por violação de unicidade.
+      * Modificar o handler do endpoint `GET /changed-templates` para consultar o banco de dados.
+3.  **Testes**: Atualizar os testes existentes para mockar o banco de dados e validar a nova lógica de persistência e consulta.
+
+Este relatório estabelece um caminho claro para transformar o `notification-watcher` em um componente robusto e confiável, eliminando a fragilidade do estado em memória e fortalecendo a integridade de todo o sistema de notificação.
