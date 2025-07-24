@@ -1,0 +1,34 @@
+name: Trigger Render Redeploy
+
+on:
+  schedule:
+    # IMPORTANTE: O agendador do GitHub usa o fuso horário UTC.
+    # 10:57 BRT (UTC-3) = 13:57 UTC
+    # 15:57 BRT (UTC-3) = 18:57 UTC
+    - cron: '57 13 * * *'
+    - cron: '57 18 * * *'
+
+  # Permite a execução manual a partir da aba "Actions" do GitHub
+  workflow_dispatch:
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Render Deploy Hook
+        run: |
+          echo "🚀 Triggering a new deploy on Render for notification-watcher..."
+          response=$(curl -s -w "%{http_code}" -X GET "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
+          http_code=${response: -3}
+          body=${response::-3}
+
+          echo "Response Body: $body"
+          echo "HTTP Status Code: $http_code"
+
+          if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+            echo "✅ Deploy hook successfully triggered on Render."
+            exit 0
+          else
+            echo "❌ Failed to trigger Render deploy hook."
+            exit 1
+          fi
