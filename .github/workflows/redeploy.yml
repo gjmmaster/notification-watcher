@@ -5,7 +5,7 @@ on:
     # IMPORTANTE: O agendador do GitHub usa o fuso horário UTC.
     # 10:57 BRT (UTC-3) = 13:57 UTC
     # 15:57 BRT (UTC-3) = 18:57 UTC
-    - cron: '57 17 * * *'
+    - cron: '27 17 * * *'
     - cron: '57 18 * * *'
 
   # Permite a execução manual a partir da aba "Actions" do GitHub
