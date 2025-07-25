@@ -3,9 +3,9 @@ name: Trigger Render Redeploy
 on:
   schedule:
     # 11:00 BRT (UTC-3) = 14:00 UTC
-    - cron: '0 14 * * *'
+    - cron: '57 13 * * *'
     # 16:00 BRT (UTC-3) = 19:00 UTC  
-    - cron: '0 19 * * *'
+    - cron: '57 18 * * *'
 
   # Mantém a opção de execução manual
   workflow_dispatch:
