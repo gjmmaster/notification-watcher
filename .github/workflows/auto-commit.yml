@@ -1,0 +1,74 @@
+name: Manter Repositório Ativo
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Todo domingo à meia-noite UTC
+  
+  workflow_dispatch:
+    inputs:
+      force_keepalive:
+        description: 'Forçar criação de keepalive (ignorar limite de 45 dias)'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Verificar e criar keepalive
+        run: |
+          echo "🔍 Verificando última atividade do repositório..."
+          
+          # Verificar se foi acionamento manual com força
+          FORCE_KEEPALIVE="${{ inputs.force_keepalive }}"
+          
+          # Obter data do último commit
+          LAST_COMMIT_DATE=$(git log -1 --format=%ct)
+          CURRENT_DATE=$(date +%s)
+          DAYS_DIFF=$(( (CURRENT_DATE - LAST_COMMIT_DATE) / 86400 ))
+          
+          echo "Último commit há $DAYS_DIFF dias"
+          echo "Forçar keepalive: $FORCE_KEEPALIVE"
+          
+          # Decidir se deve criar keepalive
+          SHOULD_CREATE_KEEPALIVE=false
+          
+          if [ "$FORCE_KEEPALIVE" = "true" ]; then
+            echo "🧪 Execução manual: Forçando criação de keepalive"
+            SHOULD_CREATE_KEEPALIVE=true
+          elif [ $DAYS_DIFF -gt 45 ]; then
+            echo "📅 Repositório inativo há mais de 45 dias. Criando keepalive..."
+            SHOULD_CREATE_KEEPALIVE=true
+          else
+            echo "✅ Repositório ainda ativo (menos de 45 dias). Nenhuma ação necessária."
+          fi
+          
+          # Criar keepalive se necessário
+          if [ "$SHOULD_CREATE_KEEPALIVE" = "true" ]; then
+            # Configurar git
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            
+            # Criar arquivo keepalive
+            echo "Last keepalive: $(date)" > .github/keepalive
+            if [ "$FORCE_KEEPALIVE" = "true" ]; then
+              echo "Manual execution: $(date +%s)" >> .github/keepalive
+            fi
+            
+            # Commit e push
+            git add .github/keepalive
+            if [ "$FORCE_KEEPALIVE" = "true" ]; then
+              git commit -m "chore: keepalive manual para teste - $(date)"
+            else
+              git commit -m "chore: keepalive automático para manter repositório ativo"
+            fi
+            git push
+            
+            echo "✅ Keepalive criado com sucesso!"
+          fi
